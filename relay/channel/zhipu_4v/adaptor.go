@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"io"
+	"math"
 	"net/http"
 	"one-api/dto"
 	"one-api/relay/channel"
@@ -34,9 +35,15 @@ func (a *Adaptor) ConvertRequest(c *gin.Context, relayMode int, request *dto.Gen
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	if request.TopP >= 1 {
-		request.TopP = 0.99
-	}
+	
+	// TopP (0.0, 1.0)
+	request.TopP = math.Min(0.99, request.TopP)
+	request.TopP = math.Max(0.01, request.TopP)
+
+	// Temperature (0.0, 1.0)
+	request.Temperature = math.Min(0.99, request.Temperature)
+	request.Temperature = math.Max(0.01, request.Temperature)
+	
 	return requestOpenAI2Zhipu(*request), nil
 }
 
