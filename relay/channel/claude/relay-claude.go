@@ -149,6 +149,9 @@ func streamResponseClaude2OpenAI(reqMode int, claudeResponse *ClaudeResponse) (*
 			claudeUsage = &claudeResponse.Usage
 		}
 	}
+	if claudeUsage == nil {
+		claudeUsage = &ClaudeUsage{}
+	}
 	response.Choices = append(response.Choices, choice)
 	return &response, claudeUsage
 }
