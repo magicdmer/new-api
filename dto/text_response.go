@@ -1,6 +1,10 @@
 package dto
 
 type TextResponse struct {
+	Id      string                     `json:"id"`
+	Object  string                     `json:"object"`
+	Created int64                      `json:"created"`
+	Model   string                     `json:"model"`
 	Choices []OpenAITextResponseChoice `json:"choices"`
 	Usage   `json:"usage"`
 	Error   OpenAIError `json:"error"`
@@ -34,13 +38,29 @@ type OpenAIEmbeddingResponse struct {
 }
 
 type ChatCompletionsStreamResponseChoice struct {
-	Delta struct {
-		Content   string `json:"content"`
-		Role      string `json:"role,omitempty"`
-		ToolCalls any    `json:"tool_calls,omitempty"`
-	} `json:"delta"`
-	FinishReason *string `json:"finish_reason,omitempty"`
-	Index        int     `json:"index,omitempty"`
+	Delta        ChatCompletionsStreamResponseChoiceDelta `json:"delta"`
+	FinishReason *string                                  `json:"finish_reason,omitempty"`
+	Index        int                                      `json:"index,omitempty"`
+}
+
+type ChatCompletionsStreamResponseChoiceDelta struct {
+	Content   string     `json:"content"`
+	Role      string     `json:"role,omitempty"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+}
+
+type ToolCall struct {
+	// Index is not nil only in chat completion chunk object
+	Index    *int         `json:"index,omitempty"`
+	ID       string       `json:"id"`
+	Type     any          `json:"type"`
+	Function FunctionCall `json:"function"`
+}
+
+type FunctionCall struct {
+	Name string `json:"name,omitempty"`
+	// call function with arguments in JSON format
+	Arguments string `json:"arguments,omitempty"`
 }
 
 type ChatCompletionsStreamResponse struct {

@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"one-api/common"
 	"one-api/dto"
 	"one-api/service"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 func requestOpenAI2Cohere(textRequest dto.GeneralOpenAIRequest) *CohereRequest {
@@ -137,7 +138,7 @@ func cohereStreamHandler(c *gin.Context, resp *http.Response, modelName string, 
 		}
 	})
 	if usage.PromptTokens == 0 {
-		usage, _ = service.ResponseText2Usage(responseText, modelName, promptTokens)
+		usage = service.ResponseText2Usage(responseText, modelName, promptTokens)
 	}
 	return nil, usage
 }

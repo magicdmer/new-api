@@ -63,63 +63,121 @@ const EditChannel = (props) => {
             let localModels = [];
             switch (value) {
                 case 14:
-                    localModels = ["claude-instant-1.2", "claude-2", "claude-2.0", "claude-2.1", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"];
-                    break;
+                  localModels = [
+                    'claude-instant-1.2',
+                    'claude-2',
+                    'claude-2.0',
+                    'claude-2.1',
+                    'claude-3-opus-20240229',
+                    'claude-3-sonnet-20240229',
+                    'claude-3-haiku-20240307',
+                  ];
+                  break;
                 case 11:
-                    localModels = ['PaLM-2'];
-                    break;
+                  localModels = ['PaLM-2'];
+                  break;
                 case 15:
-                    localModels = ['ERNIE-Bot', 'ERNIE-Bot-turbo', 'ERNIE-Bot-4', 'Embedding-V1'];
-                    break;
+                  localModels = [
+                    'ERNIE-Bot',
+                    'ERNIE-Bot-turbo',
+                    'ERNIE-Bot-4',
+                    'Embedding-V1',
+                  ];
+                  break;
                 case 17:
-                    localModels = ["qwen-turbo", "qwen-plus", "qwen-max", "qwen-max-longcontext", 'text-embedding-v1'];
-                    break;
+                  localModels = [
+                    'qwen-turbo',
+                    'qwen-plus',
+                    'qwen-max',
+                    'qwen-max-longcontext',
+                    'text-embedding-v1',
+                  ];
+                  break;
                 case 16:
-                    localModels = ['chatglm_pro', 'chatglm_std', 'chatglm_lite'];
-                    break;
+                  localModels = ['chatglm_pro', 'chatglm_std', 'chatglm_lite'];
+                  break;
                 case 18:
-                    localModels = ['SparkDesk', 'SparkDesk-v1.1', 'SparkDesk-v2.1', 'SparkDesk-v3.1', 'SparkDesk-v3.5'];
-                    break;
+                  localModels = [
+                    'SparkDesk',
+                    'SparkDesk-v1.1',
+                    'SparkDesk-v2.1',
+                    'SparkDesk-v3.1',
+                    'SparkDesk-v3.5',
+                  ];
+                  break;
                 case 19:
-                    localModels = ['360GPT_S2_V9', 'embedding-bert-512-v1', 'embedding_s1_v1', 'semantic_similarity_s1_v1'];
-                    break;
+                  localModels = [
+                    '360GPT_S2_V9',
+                    'embedding-bert-512-v1',
+                    'embedding_s1_v1',
+                    'semantic_similarity_s1_v1',
+                  ];
+                  break;
                 case 23:
-                    localModels = ['hunyuan'];
-                    break;
+                  localModels = ['hunyuan'];
+                  break;
                 case 24:
-                    localModels = ['gemini-pro', 'gemini-pro-vision'];
-                    break;
+                  localModels = [
+                    'gemini-1.0-pro-001',
+                    'gemini-1.0-pro-vision-001',
+                    'gemini-1.5-pro',
+                    'gemini-1.5-pro-latest',
+                    'gemini-pro',
+                    'gemini-pro-vision',
+                  ];
+                  break;
+                case 34:
+                  localModels = [
+                    'command-r',
+                    'command-r-plus',
+                    'command-light',
+                    'command-light-nightly',
+                    'command',
+                    'command-nightly',
+                  ];
+                  break;
                 case 25:
-                    localModels = ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'];
-                    break;
+                  localModels = [
+                    'moonshot-v1-8k',
+                    'moonshot-v1-32k',
+                    'moonshot-v1-128k',
+                  ];
+                  break;
                 case 26:
-                    localModels = ['glm-4', 'glm-4v', 'glm-3-turbo'];
-                    break;
+                  localModels = ['glm-4', 'glm-4v', 'glm-3-turbo'];
+                  break;
                 case 31:
-                    localModels = ['yi-34b-chat-0205', 'yi-34b-chat-200k', 'yi-vl-plus'];
-                    break;
+                  localModels = ['yi-34b-chat-0205', 'yi-34b-chat-200k', 'yi-vl-plus'];
+                  break;
                 case 2:
-                    localModels = ['mj_imagine', 'mj_variation', 'mj_reroll', 'mj_blend', 'mj_upscale', 'mj_describe'];
-                    break;
+                  localModels = [
+                    'mj_imagine',
+                    'mj_variation',
+                    'mj_reroll',
+                    'mj_blend',
+                    'mj_upscale',
+                    'mj_describe',
+                  ];
+                  break;
                 case 5:
-                    localModels = [
-                        'swap_face',
-                        'mj_imagine',
-                        'mj_variation',
-                        'mj_reroll',
-                        'mj_blend',
-                        'mj_upscale',
-                        'mj_describe',
-                        'mj_zoom',
-                        'mj_shorten',
-                        'mj_modal',
-                        'mj_inpaint',
-                        'mj_custom_zoom',
-                        'mj_high_variation',
-                        'mj_low_variation',
-                        'mj_pan',
-                    ];
-                    break;
+                  localModels = [
+                    'swap_face',
+                    'mj_imagine',
+                    'mj_variation',
+                    'mj_reroll',
+                    'mj_blend',
+                    'mj_upscale',
+                    'mj_describe',
+                    'mj_zoom',
+                    'mj_shorten',
+                    'mj_modal',
+                    'mj_inpaint',
+                    'mj_custom_zoom',
+                    'mj_high_variation',
+                    'mj_low_variation',
+                    'mj_pan',
+                  ];
+                  break;
             }
             setInputs((inputs) => ({...inputs, models: localModels}));
         }
