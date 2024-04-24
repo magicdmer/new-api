@@ -32,6 +32,10 @@ type GeneralOpenAIRequest struct {
 	TopLogProbs      int             `json:"top_logprobs,omitempty"`
 }
 
+func (r GeneralOpenAIRequest) GetMaxTokens() int64 {
+	return int64(r.MaxTokens)
+}
+
 func (r GeneralOpenAIRequest) ParseInput() []string {
 	if r.Input == nil {
 		return nil
