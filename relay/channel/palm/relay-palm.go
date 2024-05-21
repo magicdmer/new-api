@@ -156,7 +156,7 @@ func palmHandler(c *gin.Context, resp *http.Response, promptTokens int, model st
 		}, nil
 	}
 	fullTextResponse := responsePaLM2OpenAI(&palmResponse)
-	completionTokens := service.CountTokenText(palmResponse.Candidates[0].Content, model)
+	completionTokens, _, _ := service.CountTokenText(palmResponse.Candidates[0].Content, model, false)
 	usage := dto.Usage{
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,

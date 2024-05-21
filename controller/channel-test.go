@@ -27,7 +27,6 @@ func testChannel(channel *model.Channel, testModel string) (err error, openaiErr
 	if channel.Type == common.ChannelTypeMidjourney {
 		return errors.New("midjourney channel test is not supported"), nil
 	}
-	common.SysLog(fmt.Sprintf("testing channel %d with model %s", channel.Id, testModel))
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = &http.Request{
@@ -60,12 +59,16 @@ func testChannel(channel *model.Channel, testModel string) (err error, openaiErr
 		return fmt.Errorf("invalid api type: %d, adaptor is nil", apiType), nil
 	}
 	if testModel == "" {
-		testModel = adaptor.GetModelList()[0]
-		meta.UpstreamModelName = testModel
+		if channel.TestModel != nil && *channel.TestModel != "" {
+			testModel = *channel.TestModel
+		} else {
+			testModel = adaptor.GetModelList()[0]
+		}
 	}
 	request := buildTestRequest()
 	request.Model = testModel
 	meta.UpstreamModelName = testModel
+	common.SysLog(fmt.Sprintf("testing channel %d with model %s", channel.Id, testModel))
 
 	adaptor.Init(meta, *request)
 
@@ -83,7 +86,7 @@ func testChannel(channel *model.Channel, testModel string) (err error, openaiErr
 	if err != nil {
 		return err, nil
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp != nil && resp.StatusCode != http.StatusOK {
 		err := relaycommon.RelayErrorHandler(resp)
 		return fmt.Errorf("status code %d: %s", resp.StatusCode, err.Error.Message), &err.Error
 	}
@@ -108,6 +111,7 @@ func buildTestRequest() *dto.GeneralOpenAIRequest {
 	testRequest := &dto.GeneralOpenAIRequest{
 		Model:     "", // this will be set later
 		MaxTokens: 1,
+		Stream:    false,
 	}
 	content, _ := json.Marshal("hi")
 	testMessage := dto.Message{

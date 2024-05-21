@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"one-api/common"
+	"one-api/constant"
 	"one-api/dto"
 	"one-api/model"
 	relaycommon "one-api/relay/common"
@@ -18,15 +19,6 @@ import (
 	"strings"
 	"time"
 )
-
-var availableVoices = []string{
-	"alloy",
-	"echo",
-	"fable",
-	"onyx",
-	"nova",
-	"shimmer",
-}
 
 func AudioHelper(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 	tokenId := c.GetInt("token_id")
@@ -58,12 +50,17 @@ func AudioHelper(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 		if audioRequest.Voice == "" {
 			return service.OpenAIErrorWrapper(errors.New("voice is required"), "required_field_missing", http.StatusBadRequest)
 		}
-		if !common.StringsContains(availableVoices, audioRequest.Voice) {
-			return service.OpenAIErrorWrapper(errors.New("voice must be one of "+strings.Join(availableVoices, ", ")), "invalid_field_value", http.StatusBadRequest)
-		}
 	}
-
+	var err error
+	promptTokens := 0
 	preConsumedTokens := common.PreConsumedQuota
+	if strings.HasPrefix(audioRequest.Model, "tts-1") {
+		promptTokens, err, _ = service.CountAudioToken(audioRequest.Input, audioRequest.Model, constant.ShouldCheckPromptSensitive())
+		if err != nil {
+			return service.OpenAIErrorWrapper(err, "count_audio_token_failed", http.StatusInternalServerError)
+		}
+		preConsumedTokens = promptTokens
+	}
 	modelRatio := common.GetModelRatio(audioRequest.Model)
 	groupRatio := common.GetGroupRatio(group)
 	ratio := modelRatio * groupRatio
@@ -90,6 +87,22 @@ func AudioHelper(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 			return service.OpenAIErrorWrapper(err, "pre_consume_token_quota_failed", http.StatusForbidden)
 		}
 	}
+
+	succeed := false
+	defer func() {
+		if succeed {
+			return
+		}
+		if preConsumedQuota > 0 {
+			// we need to roll back the pre-consumed quota
+			defer func() {
+				go func() {
+					// negative means add quota back for token & user
+					returnPreConsumedQuota(c, tokenId, userQuota, preConsumedQuota)
+				}()
+			}()
+		}
+	}()
 
 	// map model name
 	modelMapping := c.GetString("model_mapping")
@@ -154,6 +167,7 @@ func AudioHelper(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 	if resp.StatusCode != http.StatusOK {
 		return relaycommon.RelayErrorHandler(resp)
 	}
+	succeed = true
 
 	var audioResponse dto.AudioResponse
 
@@ -161,12 +175,10 @@ func AudioHelper(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 		go func() {
 			useTimeSeconds := time.Now().Unix() - startTime.Unix()
 			quota := 0
-			var promptTokens = 0
 			if strings.HasPrefix(audioRequest.Model, "tts-1") {
-				quota = service.CountAudioToken(audioRequest.Input, audioRequest.Model)
-				promptTokens = quota
+				quota = promptTokens
 			} else {
-				quota = service.CountAudioToken(audioResponse.Text, audioRequest.Model)
+				quota, err, _ = service.CountAudioToken(audioResponse.Text, audioRequest.Model, false)
 			}
 			quota = int(float64(quota) * ratio)
 			if ratio != 0 && quota <= 0 {
@@ -207,6 +219,10 @@ func AudioHelper(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 		err = json.Unmarshal(responseBody, &audioResponse)
 		if err != nil {
 			return service.OpenAIErrorWrapper(err, "unmarshal_response_body_failed", http.StatusInternalServerError)
+		}
+		contains, words := service.SensitiveWordContains(audioResponse.Text)
+		if contains {
+			return service.OpenAIErrorWrapper(errors.New("response contains sensitive words: "+strings.Join(words, ", ")), "response_contains_sensitive_words", http.StatusBadRequest)
 		}
 	}
 

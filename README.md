@@ -59,6 +59,16 @@
 
 您可以在渠道中添加自定义模型gpt-4-gizmo-*，此模型并非OpenAI官方模型，而是第三方模型，使用官方key无法调用。
 
+## 渠道重试
+渠道重试功能已经实现，可以在`设置->运营设置->通用设置`设置重试次数，建议开启缓存功能。  
+如果开启了重试功能，第一次重试使用同优先级，第二次重试使用下一个优先级，以此类推。  
+### 缓存设置方法
+1. `REDIS_CONN_STRING`：设置之后将使用 Redis 作为缓存使用。
+    + 例子：`REDIS_CONN_STRING=redis://default:redispw@localhost:49153`
+2. `MEMORY_CACHE_ENABLED`：启用内存缓存（如果设置了`REDIS_CONN_STRING`，则无需手动设置），会导致用户额度的更新存在一定的延迟，可选值为 `true` 和 `false`，未设置则默认为 `false`。
+    + 例子：`MEMORY_CACHE_ENABLED=true`
+
+
 ## 部署
 ### 基于 Docker 进行部署
 ```shell
@@ -98,6 +108,12 @@ docker run --name new-api -d --restart always -p 3000:3000 -e SQL_DSN="root:1234
 
 ![image](https://github.com/Calcium-Ion/new-api/assets/61247483/5b3228e8-2556-44f7-97d6-4f8d8ee6effa)  
 ![image](https://github.com/Calcium-Ion/new-api/assets/61247483/af9a07ee-5101-4b3d-8bd9-ae21a4fd7e9e)
+
+## 相关项目
+- [One API](https://github.com/songquanpeng/one-api)：原版项目
+- [Midjourney-Proxy](https://github.com/novicezk/midjourney-proxy)：Midjourney接口支持
+- [chatnio](https://github.com/Deeptrain-Community/chatnio)：下一代 AI 一站式 B/C 端解决方案
+- [neko-api-key-tool](https://github.com/Calcium-Ion/neko-api-key-tool)：用key查询使用额度
 
 ## Star History
 

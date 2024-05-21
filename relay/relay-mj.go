@@ -110,11 +110,13 @@ func coverMidjourneyTaskDto(c *gin.Context, originTask *model.Midjourney) (midjo
 	midjourneyTask.StartTime = originTask.StartTime
 	midjourneyTask.FinishTime = originTask.FinishTime
 	midjourneyTask.ImageUrl = ""
-	if originTask.ImageUrl != "" {
+	if originTask.ImageUrl != "" && constant.MjForwardUrlEnabled {
 		midjourneyTask.ImageUrl = common.ServerAddress + "/mj/image/" + originTask.MjId
 		if originTask.Status != "SUCCESS" {
 			midjourneyTask.ImageUrl += "?rand=" + strconv.FormatInt(time.Now().UnixNano(), 10)
 		}
+	} else {
+		midjourneyTask.ImageUrl = originTask.ImageUrl
 	}
 	midjourneyTask.Status = originTask.Status
 	midjourneyTask.FailReason = originTask.FailReason
@@ -180,7 +182,7 @@ func RelaySwapFace(c *gin.Context) *dto.MidjourneyResponse {
 			Description: "quota_not_enough",
 		}
 	}
-	requestURL := c.Request.URL.String()
+	requestURL := getMjRequestPath(c.Request.URL.String())
 	baseURL := c.GetString("base_url")
 	fullRequestURL := fmt.Sprintf("%s%s", baseURL, requestURL)
 	mjResp, _, err := service.DoMidjourneyHttpRequest(c, time.Second*60, fullRequestURL)
@@ -260,7 +262,7 @@ func RelayMidjourneyTaskImageSeed(c *gin.Context) *dto.MidjourneyResponse {
 	c.Set("channel_id", originTask.ChannelId)
 	c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
 
-	requestURL := c.Request.URL.String()
+	requestURL := getMjRequestPath(c.Request.URL.String())
 	fullRequestURL := fmt.Sprintf("%s%s", channel.GetBaseURL(), requestURL)
 	midjResponseWithStatus, _, err := service.DoMidjourneyHttpRequest(c, time.Second*30, fullRequestURL)
 	if err != nil {
@@ -440,7 +442,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayMode int) *dto.MidjourneyRespons
 	}
 
 	//baseURL := common.ChannelBaseURLs[channelType]
-	requestURL := c.Request.URL.String()
+	requestURL := getMjRequestPath(c.Request.URL.String())
 
 	baseURL := c.GetString("base_url")
 
@@ -604,4 +606,16 @@ type taskChangeParams struct {
 	ID     string
 	Action string
 	Index  int
+}
+
+func getMjRequestPath(path string) string {
+	requestURL := path
+	if strings.Contains(requestURL, "/mj-") {
+		urls := strings.Split(requestURL, "/mj/")
+		if len(urls) < 2 {
+			return requestURL
+		}
+		requestURL = "/mj/" + urls[1]
+	}
+	return requestURL
 }

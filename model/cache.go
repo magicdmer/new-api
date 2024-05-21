@@ -25,9 +25,6 @@ var token2UserId = make(map[string]int)
 var token2UserIdLock sync.RWMutex
 
 func cacheSetToken(token *Token) error {
-	if !common.RedisEnabled {
-		return token.SelectUpdate()
-	}
 	jsonBytes, err := json.Marshal(token)
 	if err != nil {
 		return err
@@ -168,7 +165,11 @@ func CacheUpdateUserQuota(id int) error {
 	if err != nil {
 		return err
 	}
-	err = common.RedisSet(fmt.Sprintf("user_quota:%d", id), fmt.Sprintf("%d", quota), time.Duration(UserId2QuotaCacheSeconds)*time.Second)
+	return cacheSetUserQuota(id, quota)
+}
+
+func cacheSetUserQuota(id int, quota int) error {
+	err := common.RedisSet(fmt.Sprintf("user_quota:%d", id), fmt.Sprintf("%d", quota), time.Duration(UserId2QuotaCacheSeconds)*time.Second)
 	return err
 }
 
@@ -265,14 +266,14 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func CacheGetRandomSatisfiedChannel(group string, model string) (*Channel, error) {
+func CacheGetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
 	if strings.HasPrefix(model, "gpt-4-gizmo") {
 		model = "gpt-4-gizmo-*"
 	}
 
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetRandomSatisfiedChannel(group, model)
+		return GetRandomSatisfiedChannel(group, model, retry)
 	}
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
@@ -280,15 +281,27 @@ func CacheGetRandomSatisfiedChannel(group string, model string) (*Channel, error
 	if len(channels) == 0 {
 		return nil, errors.New("channel not found")
 	}
-	endIdx := len(channels)
-	// choose by priority
-	firstChannel := channels[0]
-	if firstChannel.GetPriority() > 0 {
-		for i := range channels {
-			if channels[i].GetPriority() != firstChannel.GetPriority() {
-				endIdx = i
-				break
-			}
+
+	uniquePriorities := make(map[int]bool)
+	for _, channel := range channels {
+		uniquePriorities[int(channel.GetPriority())] = true
+	}
+	var sortedUniquePriorities []int
+	for priority := range uniquePriorities {
+		sortedUniquePriorities = append(sortedUniquePriorities, priority)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(sortedUniquePriorities)))
+
+	if retry >= len(uniquePriorities) {
+		retry = len(uniquePriorities) - 1
+	}
+	targetPriority := int64(sortedUniquePriorities[retry])
+
+	// get the priority for the given retry number
+	var targetChannels []*Channel
+	for _, channel := range channels {
+		if channel.GetPriority() == targetPriority {
+			targetChannels = append(targetChannels, channel)
 		}
 	}
 
@@ -296,20 +309,14 @@ func CacheGetRandomSatisfiedChannel(group string, model string) (*Channel, error
 	smoothingFactor := 10
 	// Calculate the total weight of all channels up to endIdx
 	totalWeight := 0
-	for _, channel := range channels[:endIdx] {
+	for _, channel := range targetChannels {
 		totalWeight += channel.GetWeight() + smoothingFactor
 	}
-
-	//if totalWeight == 0 {
-	//	// If all weights are 0, select a channel randomly
-	//	return channels[rand.Intn(endIdx)], nil
-	//}
-
 	// Generate a random value in the range [0, totalWeight)
 	randomWeight := rand.Intn(totalWeight)
 
 	// Find a channel based on its weight
-	for _, channel := range channels[:endIdx] {
+	for _, channel := range targetChannels {
 		randomWeight -= channel.GetWeight() + smoothingFactor
 		if randomWeight < 0 {
 			return channel, nil
