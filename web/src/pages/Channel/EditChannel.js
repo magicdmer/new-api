@@ -15,6 +15,7 @@ import {
   Space,
   Spin,
   Button,
+  Tooltip,
   Input,
   Typography,
   Select,
@@ -24,6 +25,7 @@ import {
 } from '@douyinfe/semi-ui';
 import { Divider } from 'semantic-ui-react';
 import { getChannelModels, loadChannelModels } from '../../components/utils.js';
+import axios from 'axios';
 
 const MODEL_MAPPING_EXAMPLE = {
   'gpt-3.5-turbo-0301': 'gpt-3.5-turbo',
@@ -34,6 +36,8 @@ const MODEL_MAPPING_EXAMPLE = {
 const STATUS_CODE_MAPPING_EXAMPLE = {
   400: '500',
 };
+
+const fetchButtonTips = "1. 新建渠道时，请求通过当前浏览器发出；2. 编辑已有渠道，请求通过后端服务器发出"
 
 function type2secretPrompt(type) {
   // inputs.type === 15 ? '按照如下格式输入：APIKey|SecretKey' : (inputs.type === 18 ? '按照如下格式输入：APPID|APISecret|APIKey' : '请输入渠道对应的鉴权密钥')
@@ -173,12 +177,60 @@ const EditChannel = (props) => {
     setLoading(false);
   };
 
+
+  const fetchUpstreamModelList = async (name) => {
+    if (inputs["type"] !== 1) {
+      showError("仅支持 OpenAI 接口格式")
+      return;
+    }
+    setLoading(true)
+    const models = inputs["models"] || []
+    let err = false;
+    if (isEdit) {
+      const res = await API.get("/api/channel/fetch_models/" + channelId)
+      if (res.data && res.data?.success) {
+        models.push(...res.data.data)
+      } else {
+        err = true
+      }
+    } else {
+      if (!inputs?.["key"]) {
+        showError("请填写密钥")
+        err = true
+      } else {
+        try {
+          const host = new URL((inputs["base_url"] || "https://api.openai.com"))
+
+          const url = `https://${host.hostname}/v1/models`;
+          const key = inputs["key"];
+          const res = await axios.get(url, {
+            headers: {
+              'Authorization': `Bearer ${key}`
+            }
+          })
+          if (res.data && res.data?.success) {
+            models.push(...es.data.data.map((model) => model.id))
+          } else {
+            err = true
+          }
+        }
+        catch (error) {
+          err = true
+        }
+      }
+    }
+    if (!err) {
+      handleInputChange(name, Array.from(new Set(models)));
+      showSuccess("获取模型列表成功");
+    } else {
+      showError('获取模型列表失败');
+    }
+    setLoading(false);
+  }
+
   const fetchModels = async () => {
     try {
       let res = await API.get(`/api/channel/models`);
-      if (res === undefined) {
-        return;
-      }
       let localModelOptions = res.data.data.map((model) => ({
         label: model.id,
         value: model.id,
@@ -301,17 +353,18 @@ const EditChannel = (props) => {
   const addCustomModels = () => {
     if (customModel.trim() === '') return;
     // 使用逗号分隔字符串，然后去除每个模型名称前后的空格
-    const modelArray = customModel.split(',').map(model => model.trim());
-    
+    const modelArray = customModel.split(',').map((model) => model.trim());
+
     let localModels = [...inputs.models];
     let localModelOptions = [...modelOptions];
     let hasError = false;
 
-    modelArray.forEach(model => {
+    modelArray.forEach((model) => {
       // 检查模型是否已存在，且模型名称非空
       if (model && !localModels.includes(model)) {
         localModels.push(model); // 添加到模型列表
-        localModelOptions.push({ // 添加到下拉选项
+        localModelOptions.push({
+          // 添加到下拉选项
           key: model,
           text: model,
           value: model,
@@ -433,11 +486,15 @@ const EditChannel = (props) => {
           {inputs.type === 8 && (
             <>
               <div style={{ marginTop: 10 }}>
-                <Typography.Text strong>Base URL：</Typography.Text>
+                <Typography.Text strong>
+                  完整的 Base URL，支持变量{'{model}'}：
+                </Typography.Text>
               </div>
               <Input
                 name='base_url'
-                placeholder={'请输入自定义渠道的 Base URL'}
+                placeholder={
+                  '请输入完整的URL，例如：https://api.openai.com/v1/chat/completions'
+                }
                 onChange={(value) => {
                   handleInputChange('base_url', value);
                 }}
@@ -546,6 +603,16 @@ const EditChannel = (props) => {
               >
                 填入所有模型
               </Button>
+              <Tooltip content={fetchButtonTips}>
+                <Button
+                  type='tertiary'
+                  onClick={() => {
+                    fetchUpstreamModelList('models');
+                  }}
+                >
+                  获取模型列表
+                </Button>
+              </Tooltip>
               <Button
                 type='warning'
                 onClick={() => {
