@@ -22,6 +22,13 @@ type Adaptor struct {
 	ChannelType int
 }
 
+func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
+	return nil, nil
+}
+
+func (a *Adaptor) InitRerank(info *relaycommon.RelayInfo, request dto.RerankRequest) {
+}
+
 func (a *Adaptor) Init(info *relaycommon.RelayInfo, request dto.GeneralOpenAIRequest) {
 	a.ChannelType = info.ChannelType
 }
@@ -82,9 +89,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	if info.IsStream {
 		var responseText string
 		var toolCount int
-		err, responseText, toolCount = OpenaiStreamHandler(c, resp, info)
-		usage, _ = service.ResponseText2Usage(responseText, info.UpstreamModelName, info.PromptTokens)
-		usage.CompletionTokens += toolCount * 7
+		err, usage, responseText, toolCount = OpenaiStreamHandler(c, resp, info)
+		if usage == nil || usage.TotalTokens == 0 || (usage.PromptTokens+usage.CompletionTokens) == 0 {
+			usage, _ = service.ResponseText2Usage(responseText, info.UpstreamModelName, info.PromptTokens)
+			usage.CompletionTokens += toolCount * 7
+		}
 	} else {
 		err, usage = OpenaiHandler(c, resp, info.PromptTokens, info.UpstreamModelName)
 	}

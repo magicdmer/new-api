@@ -18,9 +18,10 @@ import (
 	"time"
 )
 
-func OpenaiStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.OpenAIErrorWithStatusCode, string, int) {
+func OpenaiStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.OpenAIErrorWithStatusCode, *dto.Usage, string, int) {
 	//checkSensitive := constant.ShouldCheckCompletionSensitive()
 	var responseTextBuilder strings.Builder
+	var usage dto.Usage
 	toolCount := 0
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
@@ -62,17 +63,24 @@ func OpenaiStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 				streamItems = append(streamItems, data)
 			}
 		}
+		// 计算token
 		streamResp := "[" + strings.Join(streamItems, ",") + "]"
 		switch info.RelayMode {
 		case relayconstant.RelayModeChatCompletions:
 			var streamResponses []dto.ChatCompletionsStreamResponseSimple
 			err := json.Unmarshal(common.StringToByteSlice(streamResp), &streamResponses)
 			if err != nil {
+				// 一次性解析失败，逐个解析
 				common.SysError("error unmarshalling stream response: " + err.Error())
 				for _, item := range streamItems {
 					var streamResponse dto.ChatCompletionsStreamResponseSimple
 					err := json.Unmarshal(common.StringToByteSlice(item), &streamResponse)
 					if err == nil {
+						if streamResponse.Usage != nil {
+							if streamResponse.Usage.TotalTokens != 0 {
+								usage = *streamResponse.Usage
+							}
+						}
 						for _, choice := range streamResponse.Choices {
 							responseTextBuilder.WriteString(choice.Delta.GetContentString())
 							if choice.Delta.ToolCalls != nil {
@@ -89,6 +97,11 @@ func OpenaiStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 				}
 			} else {
 				for _, streamResponse := range streamResponses {
+					if streamResponse.Usage != nil {
+						if streamResponse.Usage.TotalTokens != 0 {
+							usage = *streamResponse.Usage
+						}
+					}
 					for _, choice := range streamResponse.Choices {
 						responseTextBuilder.WriteString(choice.Delta.GetContentString())
 						if choice.Delta.ToolCalls != nil {
@@ -107,6 +120,7 @@ func OpenaiStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 			var streamResponses []dto.CompletionsStreamResponse
 			err := json.Unmarshal(common.StringToByteSlice(streamResp), &streamResponses)
 			if err != nil {
+				// 一次性解析失败，逐个解析
 				common.SysError("error unmarshalling stream response: " + err.Error())
 				for _, item := range streamItems {
 					var streamResponse dto.CompletionsStreamResponse
@@ -133,13 +147,19 @@ func OpenaiStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 	}()
 	service.SetEventStreamHeaders(c)
 	isFirst := true
+	ticker := time.NewTicker(time.Duration(constant.StreamingTimeout) * time.Second)
+	defer ticker.Stop()
 	c.Stream(func(w io.Writer) bool {
 		select {
+		case <-ticker.C:
+			common.LogError(c, "reading data from upstream timeout")
+			return false
 		case data := <-dataChan:
 			if isFirst {
 				isFirst = false
 				info.FirstResponseTime = time.Now()
 			}
+			ticker.Reset(time.Duration(constant.StreamingTimeout) * time.Second)
 			if strings.HasPrefix(data, "data: [DONE]") {
 				data = data[:12]
 			}
@@ -153,10 +173,10 @@ func OpenaiStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 	})
 	err := resp.Body.Close()
 	if err != nil {
-		return service.OpenAIErrorWrapper(err, "close_response_body_failed", http.StatusInternalServerError), "", toolCount
+		return service.OpenAIErrorWrapperLocal(err, "close_response_body_failed", http.StatusInternalServerError), nil, "", toolCount
 	}
 	wg.Wait()
-	return nil, responseTextBuilder.String(), toolCount
+	return nil, &usage, responseTextBuilder.String(), toolCount
 }
 
 func OpenaiHandler(c *gin.Context, resp *http.Response, promptTokens int, model string) (*dto.OpenAIErrorWithStatusCode, *dto.Usage) {

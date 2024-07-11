@@ -20,6 +20,11 @@ type Adaptor struct {
 	RequestMode int
 }
 
+func (a *Adaptor) InitRerank(info *relaycommon.RelayInfo, request dto.RerankRequest) {
+	//TODO implement me
+
+}
+
 func (a *Adaptor) Init(info *relaycommon.RelayInfo, request dto.GeneralOpenAIRequest) {
 	if strings.HasPrefix(info.UpstreamModelName, "claude-3") {
 		a.RequestMode = RequestModeMessage
@@ -53,13 +58,17 @@ func (a *Adaptor) ConvertRequest(c *gin.Context, relayMode int, request *dto.Gen
 	return claudeReq, err
 }
 
+func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
+	return nil, nil
+}
+
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	return nil, nil
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage *dto.Usage, err *dto.OpenAIErrorWithStatusCode) {
 	if info.IsStream {
-		err, usage = awsStreamHandler(c, info, a.RequestMode)
+		err, usage = awsStreamHandler(c, resp, info, a.RequestMode)
 	} else {
 		err, usage = awsHandler(c, info, a.RequestMode)
 	}

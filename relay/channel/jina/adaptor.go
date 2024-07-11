@@ -1,4 +1,4 @@
-package perplexity
+package jina
 
 import (
 	"errors"
@@ -8,59 +8,49 @@ import (
 	"net/http"
 	"one-api/dto"
 	"one-api/relay/channel"
-	"one-api/relay/channel/openai"
 	relaycommon "one-api/relay/common"
-	"one-api/service"
+	"one-api/relay/constant"
 )
 
 type Adaptor struct {
 }
 
 func (a *Adaptor) InitRerank(info *relaycommon.RelayInfo, request dto.RerankRequest) {
-	//TODO implement me
-
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo, request dto.GeneralOpenAIRequest) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	return fmt.Sprintf("%s/chat/completions", info.BaseUrl), nil
+	if info.RelayMode == constant.RelayModeRerank {
+		return fmt.Sprintf("%s/v1/rerank", info.BaseUrl), nil
+	} else if info.RelayMode == constant.RelayModeEmbeddings {
+		return fmt.Sprintf("%s/v1/embeddings ", info.BaseUrl), nil
+	}
+	return "", errors.New("invalid relay mode")
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
-	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", info.ApiKey))
 	return nil
 }
 
 func (a *Adaptor) ConvertRequest(c *gin.Context, relayMode int, request *dto.GeneralOpenAIRequest) (any, error) {
-	if request == nil {
-		return nil, errors.New("request is nil")
-	}
-	if request.TopP >= 1 {
-		request.TopP = 0.99
-	}
-	return requestOpenAI2Perplexity(*request), nil
-}
-
-func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
-	return nil, nil
+	return request, nil
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
+func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
+	return request, nil
+}
+
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage *dto.Usage, err *dto.OpenAIErrorWithStatusCode) {
-	if info.IsStream {
-		var responseText string
-		err, usage, responseText, _ = openai.OpenaiStreamHandler(c, resp, info)
-		if usage == nil || usage.TotalTokens == 0 || (usage.PromptTokens+usage.CompletionTokens) == 0 {
-			usage, _ = service.ResponseText2Usage(responseText, info.UpstreamModelName, info.PromptTokens)
-		}
-	} else {
-		err, usage = openai.OpenaiHandler(c, resp, info.PromptTokens, info.UpstreamModelName)
+	if info.RelayMode == constant.RelayModeRerank {
+		err, usage = jinaRerankHandler(c, resp)
 	}
 	return
 }
