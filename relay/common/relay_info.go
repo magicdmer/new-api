@@ -17,6 +17,7 @@ type RelayInfo struct {
 	TokenUnlimited       bool
 	StartTime            time.Time
 	FirstResponseTime    time.Time
+	setFirstResponse     bool
 	ApiType              int
 	IsStream             bool
 	RelayMode            int
@@ -68,7 +69,8 @@ func GenRelayInfo(c *gin.Context) *RelayInfo {
 		info.ApiVersion = GetAPIVersion(c)
 	}
 	if info.ChannelType == common.ChannelTypeOpenAI || info.ChannelType == common.ChannelTypeAnthropic ||
-		info.ChannelType == common.ChannelTypeAws || info.ChannelType == common.ChannelTypeGemini {
+		info.ChannelType == common.ChannelTypeAws || info.ChannelType == common.ChannelTypeGemini ||
+		info.ChannelType == common.ChannelCloudflare {
 		info.SupportStreamOptions = true
 	}
 	return info
@@ -80,6 +82,13 @@ func (info *RelayInfo) SetPromptTokens(promptTokens int) {
 
 func (info *RelayInfo) SetIsStream(isStream bool) {
 	info.IsStream = isStream
+}
+
+func (info *RelayInfo) SetFirstResponseTime() {
+	if !info.setFirstResponse {
+		info.FirstResponseTime = time.Now()
+		info.setFirstResponse = true
+	}
 }
 
 type TaskRelayInfo struct {
