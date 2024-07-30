@@ -24,3 +24,7 @@ func ResponseText2Usage(responseText string, modeName string, promptTokens int) 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	return usage, err
 }
+
+func ValidUsage(usage *dto.Usage) bool {
+	return usage != nil && (usage.PromptTokens != 0 || usage.CompletionTokens != 0)
+}

@@ -3,12 +3,14 @@ package main
 import (
 	"embed"
 	"fmt"
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
 	"one-api/common"
+	"one-api/constant"
 	"one-api/controller"
 	"one-api/middleware"
 	"one-api/model"
@@ -89,9 +91,14 @@ func main() {
 		}
 		go controller.AutomaticallyTestChannels(frequency)
 	}
-	common.SafeGoroutine(func() {
-		controller.UpdateMidjourneyTaskBulk()
-	})
+	if common.IsMasterNode && constant.UpdateTask {
+		gopool.Go(func() {
+			controller.UpdateMidjourneyTaskBulk()
+		})
+		gopool.Go(func() {
+			controller.UpdateTaskBulk()
+		})
+	}
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")

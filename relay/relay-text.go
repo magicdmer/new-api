@@ -77,7 +77,7 @@ func TextHelper(c *gin.Context) *dto.OpenAIErrorWithStatusCode {
 
 	// map model name
 	modelMapping := c.GetString("model_mapping")
-	isModelMapped := false
+	//isModelMapped := false
 	if modelMapping != "" && modelMapping != "{}" {
 		modelMap := make(map[string]string)
 		err := json.Unmarshal([]byte(modelMapping), &modelMap)
@@ -87,11 +87,11 @@ func TextHelper(c *gin.Context) *dto.OpenAIErrorWithStatusCode {
 		if modelMap[textRequest.Model] != "" {
 			textRequest.Model = modelMap[textRequest.Model]
 			// set upstream model name
-			isModelMapped = true
+			//isModelMapped = true
 		}
 	}
 	relayInfo.UpstreamModelName = textRequest.Model
-	modelPrice, success := common.GetModelPrice(textRequest.Model, false)
+	modelPrice, getModelPriceSuccess := common.GetModelPrice(textRequest.Model, false)
 	groupRatio := common.GetGroupRatio(relayInfo.Group)
 
 	var preConsumedQuota int
@@ -112,7 +112,7 @@ func TextHelper(c *gin.Context) *dto.OpenAIErrorWithStatusCode {
 		return service.OpenAIErrorWrapper(err, "count_token_messages_failed", http.StatusInternalServerError)
 	}
 
-	if !success {
+	if !getModelPriceSuccess {
 		preConsumedTokens := common.PreConsumedQuota
 		if textRequest.MaxTokens != 0 {
 			preConsumedTokens = promptTokens + int(textRequest.MaxTokens)
@@ -130,33 +130,44 @@ func TextHelper(c *gin.Context) *dto.OpenAIErrorWithStatusCode {
 		return openaiErr
 	}
 
+	includeUsage := false
+	// 判断用户是否需要返回使用情况
+	if textRequest.StreamOptions != nil && textRequest.StreamOptions.IncludeUsage {
+		includeUsage = true
+	}
+
+	// 如果不支持StreamOptions，将StreamOptions设置为nil
+	if !relayInfo.SupportStreamOptions || !textRequest.Stream {
+		textRequest.StreamOptions = nil
+	} else {
+		// 如果支持StreamOptions，且请求中没有设置StreamOptions，根据配置文件设置StreamOptions
+		if constant.ForceStreamOption {
+			textRequest.StreamOptions = &dto.StreamOptions{
+				IncludeUsage: true,
+			}
+		}
+	}
+
+	if includeUsage {
+		relayInfo.ShouldIncludeUsage = true
+	}
+
 	adaptor := GetAdaptor(relayInfo.ApiType)
 	if adaptor == nil {
 		return service.OpenAIErrorWrapperLocal(fmt.Errorf("invalid api type: %d", relayInfo.ApiType), "invalid_api_type", http.StatusBadRequest)
 	}
-	adaptor.Init(relayInfo, *textRequest)
+	adaptor.Init(relayInfo)
 	var requestBody io.Reader
-	if relayInfo.ApiType == relayconstant.APITypeOpenAI {
-		if isModelMapped {
-			jsonStr, err := json.Marshal(textRequest)
-			if err != nil {
-				return service.OpenAIErrorWrapperLocal(err, "marshal_text_request_failed", http.StatusInternalServerError)
-			}
-			requestBody = bytes.NewBuffer(jsonStr)
-		} else {
-			requestBody = c.Request.Body
-		}
-	} else {
-		convertedRequest, err := adaptor.ConvertRequest(c, relayInfo.RelayMode, textRequest)
-		if err != nil {
-			return service.OpenAIErrorWrapperLocal(err, "convert_request_failed", http.StatusInternalServerError)
-		}
-		jsonData, err := json.Marshal(convertedRequest)
-		if err != nil {
-			return service.OpenAIErrorWrapperLocal(err, "json_marshal_failed", http.StatusInternalServerError)
-		}
-		requestBody = bytes.NewBuffer(jsonData)
+
+	convertedRequest, err := adaptor.ConvertRequest(c, relayInfo, textRequest)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "convert_request_failed", http.StatusInternalServerError)
 	}
+	jsonData, err := json.Marshal(convertedRequest)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "json_marshal_failed", http.StatusInternalServerError)
+	}
+	requestBody = bytes.NewBuffer(jsonData)
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 	resp, err := adaptor.DoRequest(c, relayInfo, requestBody)
@@ -182,7 +193,7 @@ func TextHelper(c *gin.Context) *dto.OpenAIErrorWithStatusCode {
 		service.ResetStatusCode(openaiErr, statusCodeMappingStr)
 		return openaiErr
 	}
-	postConsumeQuota(c, relayInfo, *textRequest, usage, ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, success)
+	postConsumeQuota(c, relayInfo, textRequest.Model, usage, ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, "")
 	return nil
 }
 
@@ -272,16 +283,16 @@ func returnPreConsumedQuota(c *gin.Context, tokenId int, userQuota int, preConsu
 	}
 }
 
-func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, textRequest dto.GeneralOpenAIRequest,
+func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelName string,
 	usage *dto.Usage, ratio float64, preConsumedQuota int, userQuota int, modelRatio float64, groupRatio float64,
-	modelPrice float64, usePrice bool) {
+	modelPrice float64, usePrice bool, extraContent string) {
 
 	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
 	promptTokens := usage.PromptTokens
 	completionTokens := usage.CompletionTokens
 
 	tokenName := ctx.GetString("token_name")
-	completionRatio := common.GetCompletionRatio(textRequest.Model)
+	completionRatio := common.GetCompletionRatio(modelName)
 
 	quota := 0
 	if !usePrice {
@@ -295,7 +306,7 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, textRe
 	}
 	totalTokens := promptTokens + completionTokens
 	var logContent string
-	if modelPrice == -1 {
+	if !usePrice {
 		logContent = fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f，补全倍率 %.2f", modelRatio, groupRatio, completionRatio)
 	} else {
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
@@ -307,7 +318,8 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, textRe
 		// we cannot just return, because we may have to return the pre-consumed quota
 		quota = 0
 		logContent += fmt.Sprintf("（可能是上游超时）")
-		common.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, textRequest.Model, preConsumedQuota))
+		common.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, "+
+			"tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, modelName, preConsumedQuota))
 	} else {
 		//if sensitiveResp != nil {
 		//	logContent += fmt.Sprintf("，敏感词：%s", strings.Join(sensitiveResp.SensitiveWords, ", "))
@@ -327,20 +339,17 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, textRe
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
 
-	logModel := textRequest.Model
+	logModel := modelName
 	if strings.HasPrefix(logModel, "gpt-4-gizmo") {
 		logModel = "gpt-4-gizmo-*"
-		logContent += fmt.Sprintf("，模型 %s", textRequest.Model)
+		logContent += fmt.Sprintf("，模型 %s", modelName)
 	}
-	other := make(map[string]interface{})
-	other["model_ratio"] = modelRatio
-	other["group_ratio"] = groupRatio
-	other["completion_ratio"] = completionRatio
-	other["model_price"] = modelPrice
-	adminInfo := make(map[string]interface{})
-	adminInfo["use_channel"] = ctx.GetStringSlice("use_channel")
-	other["admin_info"] = adminInfo
-	model.RecordConsumeLog(ctx, relayInfo.UserId, relayInfo.ChannelId, promptTokens, completionTokens, logModel, tokenName, quota, logContent, relayInfo.TokenId, userQuota, int(useTimeSeconds), relayInfo.IsStream, other)
+	if extraContent != "" {
+		logContent += ", " + extraContent
+	}
+	other := service.GenerateTextOtherInfo(ctx, relayInfo, modelRatio, groupRatio, completionRatio, modelPrice)
+	model.RecordConsumeLog(ctx, relayInfo.UserId, relayInfo.ChannelId, promptTokens, completionTokens, logModel,
+		tokenName, quota, logContent, relayInfo.TokenId, userQuota, int(useTimeSeconds), relayInfo.IsStream, other)
 
 	//if quota != 0 {
 	//

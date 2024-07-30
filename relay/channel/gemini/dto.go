@@ -12,9 +12,15 @@ type GeminiInlineData struct {
 	Data     string `json:"data"`
 }
 
+type FunctionCall struct {
+	FunctionName string `json:"name"`
+	Arguments    any    `json:"args"`
+}
+
 type GeminiPart struct {
-	Text       string            `json:"text,omitempty"`
-	InlineData *GeminiInlineData `json:"inlineData,omitempty"`
+	Text         string            `json:"text,omitempty"`
+	InlineData   *GeminiInlineData `json:"inlineData,omitempty"`
+	FunctionCall *FunctionCall     `json:"functionCall,omitempty"`
 }
 
 type GeminiChatContent struct {
@@ -59,4 +65,11 @@ type GeminiChatPromptFeedback struct {
 type GeminiChatResponse struct {
 	Candidates     []GeminiChatCandidate    `json:"candidates"`
 	PromptFeedback GeminiChatPromptFeedback `json:"promptFeedback"`
+	UsageMetadata  GeminiUsageMetadata      `json:"usageMetadata"`
+}
+
+type GeminiUsageMetadata struct {
+	PromptTokenCount     int `json:"promptTokenCount"`
+	CandidatesTokenCount int `json:"candidatesTokenCount"`
+	TotalTokenCount      int `json:"totalTokenCount"`
 }
