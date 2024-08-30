@@ -3,13 +3,15 @@ package gemini
 import (
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"one-api/constant"
 	"one-api/dto"
 	"one-api/relay/channel"
 	relaycommon "one-api/relay/common"
+	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Adaptor struct {
@@ -37,6 +39,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			version = info.ApiVersion
 		} else {
 			version = "v1"
+		}
+
+		if strings.Contains(info.UpstreamModelName, "exp") {
+			version = "v1beta"
 		}
 	}
 
