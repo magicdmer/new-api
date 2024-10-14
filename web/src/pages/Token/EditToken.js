@@ -18,8 +18,8 @@ import {
   Select,
   SideSheet,
   Space,
-  Spin,
-  Typography,
+  Spin, TextArea,
+  Typography
 } from '@douyinfe/semi-ui';
 import Title from '@douyinfe/semi-ui/lib/es/typography/title';
 import { Divider } from 'semantic-ui-react';
@@ -34,6 +34,8 @@ const EditToken = (props) => {
     unlimited_quota: false,
     model_limits_enabled: false,
     model_limits: [],
+    allow_ips: '',
+    group: '',
   };
   const [inputs, setInputs] = useState(originInputs);
   const {
@@ -43,9 +45,12 @@ const EditToken = (props) => {
     unlimited_quota,
     model_limits_enabled,
     model_limits,
+    allow_ips,
+    group
   } = inputs;
   // const [visible, setVisible] = useState(false);
-  const [models, setModels] = useState({});
+  const [models, setModels] = useState([]);
+  const [groups, setGroups] = useState([]);
   const navigate = useNavigate();
   const handleInputChange = (name, value) => {
     setInputs((inputs) => ({ ...inputs, [name]: value }));
@@ -86,6 +91,22 @@ const EditToken = (props) => {
     }
   };
 
+  const loadGroups = async () => {
+    let res = await API.get(`/api/user/groups`);
+    const { success, message, data } = res.data;
+    if (success) {
+      // return data is a map, key is group name, value is group description
+      // label is group description, value is group name
+        let localGroupOptions = Object.keys(data).map((group) => ({
+            label: data[group],
+            value: group,
+        }));
+        setGroups(localGroupOptions);
+    } else {
+      showError(message);
+    }
+  };
+
   const loadToken = async () => {
     setLoading(true);
     let res = await API.get(`/api/token/${props.editingToken.id}`);
@@ -118,6 +139,7 @@ const EditToken = (props) => {
       });
     }
     loadModels();
+    loadGroups();
   }, [isEdit]);
 
   // 新增 state 变量 tokenCount 来记录用户想要创建的令牌数量，默认为 1
@@ -374,6 +396,19 @@ const EditToken = (props) => {
             </Button>
           </div>
           <Divider />
+          <div style={{ marginTop: 10 }}>
+            <Typography.Text>IP白名单（请勿过度信任此功能）</Typography.Text>
+          </div>
+          <TextArea
+            label='IP白名单'
+            name='allow_ips'
+            placeholder={'允许的IP，一行一个'}
+            onChange={(value) => {
+              handleInputChange('allow_ips', value);
+            }}
+            value={inputs.allow_ips}
+            style={{ fontFamily: 'JetBrains Mono, Consolas' }}
+          />
           <div style={{ marginTop: 10, display: 'flex' }}>
             <Space>
               <Checkbox
@@ -404,6 +439,30 @@ const EditToken = (props) => {
             optionList={models}
             disabled={!model_limits_enabled}
           />
+          <div style={{ marginTop: 10 }}>
+            <Typography.Text>令牌分组，默认为用户的分组</Typography.Text>
+          </div>
+          {groups.length > 0 ?
+            <Select
+              style={{ marginTop: 8 }}
+              placeholder={'令牌分组，默认为用户的分组'}
+              name='gruop'
+              required
+              selection
+              onChange={(value) => {
+                handleInputChange('group', value);
+              }}
+              value={inputs.group}
+              autoComplete='new-password'
+              optionList={groups}
+            />:
+            <Select
+              style={{ marginTop: 8 }}
+              placeholder={'管理员未设置用户可选分组'}
+              name='gruop'
+              disabled={true}
+            />
+          }
         </Spin>
       </SideSheet>
     </>
