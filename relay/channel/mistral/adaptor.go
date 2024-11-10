@@ -1,17 +1,14 @@
-package gemini
+package mistral
 
 import (
 	"errors"
-	"fmt"
+	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
-	"one-api/constant"
 	"one-api/dto"
 	"one-api/relay/channel"
+	"one-api/relay/channel/openai"
 	relaycommon "one-api/relay/common"
-	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 type Adaptor struct {
@@ -28,34 +25,15 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
-
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	// 从映射中获取模型名称对应的版本，如果找不到就使用 info.ApiVersion 或默认的版本 "v1"
-	version, beta := constant.GeminiModelMap[info.UpstreamModelName]
-	if !beta {
-		if info.ApiVersion != "" {
-			version = info.ApiVersion
-		} else {
-			version = "v1"
-		}
-
-		if strings.Contains(info.UpstreamModelName, "exp") {
-			version = "v1beta"
-		}
-	}
-
-	action := "generateContent"
-	if info.IsStream {
-		action = "streamGenerateContent?alt=sse"
-	}
-	return fmt.Sprintf("%s/%s/models/%s:%s", info.BaseUrl, version, info.UpstreamModelName, action), nil
+	return relaycommon.GetFullRequestURL(info.BaseUrl, info.RequestURLPath, info.ChannelType), nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
-	req.Set("x-goog-api-key", info.ApiKey)
+	req.Set("Authorization", "Bearer "+info.ApiKey)
 	return nil
 }
 
@@ -63,7 +41,9 @@ func (a *Adaptor) ConvertRequest(c *gin.Context, info *relaycommon.RelayInfo, re
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	return CovertGemini2OpenAI(*request), nil
+	mistralReq := requestOpenAI2Mistral(*request)
+	//common.LogJson(c, "body", mistralReq)
+	return mistralReq, nil
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
@@ -76,9 +56,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *dto.OpenAIErrorWithStatusCode) {
 	if info.IsStream {
-		err, usage = GeminiChatStreamHandler(c, resp, info)
+		err, usage = openai.OaiStreamHandler(c, resp, info)
 	} else {
-		err, usage = GeminiChatHandler(c, resp)
+		err, usage = openai.OpenaiHandler(c, resp, info.PromptTokens, info.UpstreamModelName)
 	}
 	return
 }
