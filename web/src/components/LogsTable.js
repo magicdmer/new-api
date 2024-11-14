@@ -11,7 +11,7 @@ import {
 
 import {
   Avatar,
-  Button,
+  Button, Descriptions,
   Form,
   Layout,
   Modal,
@@ -20,14 +20,15 @@ import {
   Spin,
   Table,
   Tag,
-  Tooltip,
+  Tooltip
 } from '@douyinfe/semi-ui';
 import { ITEMS_PER_PAGE } from '../constants';
 import {
+  renderAudioModelPrice,
   renderModelPrice,
   renderNumber,
   renderQuota,
-  stringToColor,
+  stringToColor
 } from '../helpers/render';
 import Paragraph from '@douyinfe/semi-ui/lib/es/typography/paragraph';
 import { getLogOther } from '../helpers/other.js';
@@ -384,31 +385,31 @@ const LogsTable = () => {
             </Paragraph>
           );
         }
-        let content = renderModelPrice(
-          record.prompt_tokens,
-          record.completion_tokens,
-          other.model_ratio,
-          other.model_price,
-          other.completion_ratio,
-          other.group_ratio,
-        );
+
+        // let content = renderModelPrice(
+        //   record.prompt_tokens,
+        //   record.completion_tokens,
+        //   other.model_ratio,
+        //   other.model_price,
+        //   other.completion_ratio,
+        //   other.group_ratio,
+        // );
         return (
-          <Tooltip content={content}>
             <Paragraph
-              ellipsis={{
-                rows: 2,
-              }}
-              style={{ maxWidth: 240 }}
+                ellipsis={{
+                  rows: 2,
+                }}
+                style={{ maxWidth: 240 }}
             >
-              {text}
+              调用消费
             </Paragraph>
-          </Tooltip>
         );
       },
     },
   ];
 
   const [logs, setLogs] = useState([]);
+  const [expandData, setExpandData] = useState({});
   const [showStat, setShowStat] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingStat, setLoadingStat] = useState(false);
@@ -512,10 +513,89 @@ const LogsTable = () => {
   };
 
   const setLogsFormat = (logs) => {
+    let expandDatesLocal = {};
     for (let i = 0; i < logs.length; i++) {
       logs[i].timestamp2string = timestamp2string(logs[i].created_at);
-      logs[i].key = '' + logs[i].id;
+      logs[i].key = i;
+      let other = getLogOther(logs[i].other);
+      let expandDataLocal = [];
+      if (isAdmin()) {
+        // let content = '渠道：' + logs[i].channel;
+        // if (other.admin_info !== undefined) {
+        //   if (
+        //     other.admin_info.use_channel !== null &&
+        //     other.admin_info.use_channel !== undefined &&
+        //     other.admin_info.use_channel !== ''
+        //   ) {
+        //     // channel id array
+        //     let useChannel = other.admin_info.use_channel;
+        //     let useChannelStr = useChannel.join('->');
+        //     content = `渠道：${useChannelStr}`;
+        //   }
+        // }
+        // expandDataLocal.push({
+        //   key: '渠道重试',
+        //   value: content,
+        // })
+      }
+      if (other?.ws || other?.audio) {
+        expandDataLocal.push({
+          key: '语音输入',
+          value: other.audio_input,
+        });
+        expandDataLocal.push({
+          key: '语音输出',
+          value: other.audio_output,
+        });
+        expandDataLocal.push({
+          key: '文字输入',
+          value: other.text_input,
+        });
+        expandDataLocal.push({
+          key: '文字输出',
+          value: other.text_output,
+        });
+      }
+      expandDataLocal.push({
+        key: '日志详情',
+        value: logs[i].content,
+      })
+      if (logs[i].type === 2) {
+        let content = '';
+        if (other?.ws || other?.audio) {
+          content = renderAudioModelPrice(
+            other.text_input,
+            other.text_output,
+            other.model_ratio,
+            other.model_price,
+            other.completion_ratio,
+            other.audio_input,
+            other.audio_output,
+            other?.audio_ratio,
+            other?.audio_completion_ratio,
+            other.group_ratio,
+          );
+        } else {
+          content = renderModelPrice(
+            logs[i].prompt_tokens,
+            logs[i].completion_tokens,
+            other.model_ratio,
+            other.model_price,
+            other.completion_ratio,
+            other.group_ratio,
+          );
+        }
+        expandDataLocal.push({
+          key: '计费过程',
+          value: content,
+        });
+      }
+
+      expandDatesLocal[logs[i].key] = expandDataLocal;
     }
+
+    setExpandData(expandDatesLocal);
+
     setLogs(logs);
   };
 
@@ -587,6 +667,10 @@ const LogsTable = () => {
       });
     handleEyeClick();
   }, []);
+
+  const expandRowRender = (record, index) => {
+    return <Descriptions data={expandData[record.key]} />;
+  };
 
   return (
     <>
@@ -683,10 +767,29 @@ const LogsTable = () => {
             <Form.Section></Form.Section>
           </>
         </Form>
+        <div style={{marginTop:10}}>
+          <Select
+              defaultValue='0'
+              style={{ width: 120 }}
+              onChange={(value) => {
+                setLogType(parseInt(value));
+                loadLogs(0, pageSize, parseInt(value));
+              }}
+          >
+            <Select.Option value='0'>全部</Select.Option>
+            <Select.Option value='1'>充值</Select.Option>
+            <Select.Option value='2'>消费</Select.Option>
+            <Select.Option value='3'>管理</Select.Option>
+            <Select.Option value='4'>系统</Select.Option>
+          </Select>
+        </div>
         <Table
           style={{ marginTop: 5 }}
           columns={columns}
+          expandedRowRender={expandRowRender}
+          expandRowByClick={true}
           dataSource={logs}
+          rowKey="key"
           pagination={{
             currentPage: activePage,
             pageSize: pageSize,
@@ -699,20 +802,6 @@ const LogsTable = () => {
             onPageChange: handlePageChange,
           }}
         />
-        <Select
-          defaultValue='0'
-          style={{ width: 120 }}
-          onChange={(value) => {
-            setLogType(parseInt(value));
-            loadLogs(0, pageSize, parseInt(value));
-          }}
-        >
-          <Select.Option value='0'>全部</Select.Option>
-          <Select.Option value='1'>充值</Select.Option>
-          <Select.Option value='2'>消费</Select.Option>
-          <Select.Option value='3'>管理</Select.Option>
-          <Select.Option value='4'>系统</Select.Option>
-        </Select>
       </Layout>
     </>
   );
