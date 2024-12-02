@@ -68,7 +68,7 @@
 
 ## 比原版One API多出的配置
 - `GENERATE_DEFAULT_TOKEN`：是否为新注册用户生成初始令牌，默认为 `false`。
-- `STREAMING_TIMEOUT`：设置流式一次回复的超时时间，默认为 30 秒。
+- `STREAMING_TIMEOUT`：设置流式一次回复的超时时间，默认为 60 秒。
 - `DIFY_DEBUG`：设置 Dify 渠道是否输出工作流和节点信息到客户端，默认为 `true`。
 - `FORCE_STREAM_OPTION`：是否覆盖客户端stream_options参数，请求上游返回流模式usage，默认为 `true`，建议开启，不影响客户端传入stream_options参数返回结果。
 - `GET_MEDIA_TOKEN`：是统计图片token，默认为 `true`，关闭后将不再在本地计算图片token，可能会导致和上游计费不同，此项覆盖 `GET_MEDIA_TOKEN_NOT_STREAM` 选项作用。
@@ -88,6 +88,17 @@
 [图文教程](BT.md)
 
 ### 基于 Docker 进行部署
+### 使用 Docker Compose 部署（推荐）
+```shell
+# 下载项目
+git clone https://github.com/Calcium-Ion/new-api.git
+cd new-api
+# 按需编辑 docker-compose.yml
+# 启动
+docker-compose up -d
+```
+
+### 直接使用 Docker 镜像
 ```shell
 # 使用 SQLite 的部署命令：
 docker run --name new-api -d --restart always -p 3000:3000 -e TZ=Asia/Shanghai -v /home/ubuntu/data/new-api:/data calciumion/new-api:latest
@@ -125,6 +136,7 @@ docker run --name new-api -d --restart always -p 3000:3000 -e SQL_DSN="root:1234
 ![796df8d287b7b7bd7853b2497e7df511](https://github.com/user-attachments/assets/255b5e97-2d3a-4434-b4fa-e922ad88ff5a)
 
 ![image](https://github.com/Calcium-Ion/new-api/assets/61247483/ad0e7aae-0203-471c-9716-2d83768927d4)
+![image](https://github.com/user-attachments/assets/29f81de5-33fc-4fc5-a5ff-f9b54b653c7c)
 
 ![image](https://github.com/Calcium-Ion/new-api/assets/61247483/3ca0b282-00ff-4c96-bf9d-e29ef615c605)
 夜间模式  
