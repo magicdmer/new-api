@@ -64,6 +64,7 @@
 13. 🎵 添加 [Suno API](https://github.com/Suno-API/Suno-API)接口支持，[对接文档](Suno.md)
 14. 🔄 支持Rerank模型，目前兼容Cohere和Jina，可接入Dify，[对接文档](Rerank.md)
 15. ⚡ **[OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime/integration)** - 支持OpenAI的Realtime API，支持Azure渠道
+16. 支持使用路由/chat2link 进入聊天界面
 
 ## 模型支持
 此版本额外支持以下模型：
@@ -169,6 +170,10 @@ docker run --name new-api -d --restart always -p 3000:3000 -e SQL_DSN="root:1234
 - [Midjourney-Proxy](https://github.com/novicezk/midjourney-proxy)：Midjourney接口支持
 - [chatnio](https://github.com/Deeptrain-Community/chatnio)：下一代 AI 一站式 B/C 端解决方案
 - [neko-api-key-tool](https://github.com/Calcium-Ion/neko-api-key-tool)：用key查询使用额度
+
+其他基于New API的项目：
+- [new-api-horizon](https://github.com/Calcium-Ion/new-api-horizon)：New API高性能优化版，并支持Claude格式
+- [VoAPI](https://github.com/VoAPI/VoAPI)：基于New API的闭源项目
 
 ## 🌟 Star History
 
