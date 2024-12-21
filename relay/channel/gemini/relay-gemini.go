@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"one-api/common"
@@ -13,10 +12,12 @@ import (
 	relaycommon "one-api/relay/common"
 	"one-api/service"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 // Setting safety to the lowest possible values since Gemini is already powerless enough
-func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) *GeminiChatRequest {
+func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) (*GeminiChatRequest, error) {
 	geminiRequest := GeminiChatRequest{
 		Contents: make([]GeminiChatContent, 0, len(textRequest.Messages)),
 		SafetySettings: []GeminiChatSafetySettings{
@@ -34,6 +35,10 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) *GeminiChatReques
 			},
 			{
 				Category:  "HARM_CATEGORY_DANGEROUS_CONTENT",
+				Threshold: common.GeminiSafetySetting,
+			},
+			{
+				Category:  "HARM_CATEGORY_CIVIC_INTEGRITY",
 				Threshold: common.GeminiSafetySetting,
 			},
 		},
@@ -72,6 +77,16 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) *GeminiChatReques
 			},
 		}
 	}
+
+	if textRequest.ResponseFormat != nil && (textRequest.ResponseFormat.Type == "json_schema" || textRequest.ResponseFormat.Type == "json_object") {
+		geminiRequest.GenerationConfig.ResponseMimeType = "application/json"
+
+		if textRequest.ResponseFormat.JsonSchema != nil && textRequest.ResponseFormat.JsonSchema.Schema != nil {
+			cleanedSchema := removeAdditionalPropertiesWithDepth(textRequest.ResponseFormat.JsonSchema.Schema, 0)
+			geminiRequest.GenerationConfig.ResponseSchema = cleanedSchema
+		}
+	}
+
 	//shouldAddDummyModelMessage := false
 	for _, message := range textRequest.Messages {
 
@@ -103,9 +118,10 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) *GeminiChatReques
 				})
 			} else if part.Type == dto.ContentTypeImageURL {
 				imageNum += 1
-				//if imageNum > GeminiVisionMaxImageNum {
-				//	continue
-				//}
+
+				if constant.GeminiVisionMaxImageNum != -1 && imageNum > constant.GeminiVisionMaxImageNum {
+					return nil, fmt.Errorf("too many images in the message, max allowed is %d", constant.GeminiVisionMaxImageNum)
+				}
 				// 判断是否是url
 				if strings.HasPrefix(part.ImageUrl.(dto.MessageImageUrl).Url, "http") {
 					// 是url，获取图片的类型和base64编码的数据
@@ -119,7 +135,7 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) *GeminiChatReques
 				} else {
 					_, format, base64String, err := service.DecodeBase64ImageData(part.ImageUrl.(dto.MessageImageUrl).Url)
 					if err != nil {
-						continue
+						return nil, fmt.Errorf("decode base64 image data failed: %s", err.Error())
 					}
 					parts = append(parts, GeminiPart{
 						InlineData: &GeminiInlineData{
@@ -156,7 +172,47 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) *GeminiChatReques
 		//	shouldAddDummyModelMessage = false
 		//}
 	}
-	return &geminiRequest
+	return &geminiRequest, nil
+}
+
+func removeAdditionalPropertiesWithDepth(schema interface{}, depth int) interface{} {
+	if depth >= 5 {
+		return schema
+	}
+
+	v, ok := schema.(map[string]interface{})
+	if !ok || len(v) == 0 {
+		return schema
+	}
+
+	// 如果type不为object和array，则直接返回
+	if typeVal, exists := v["type"]; !exists || (typeVal != "object" && typeVal != "array") {
+		return schema
+	}
+
+	switch v["type"] {
+	case "object":
+		delete(v, "additionalProperties")
+		// 处理 properties
+		if properties, ok := v["properties"].(map[string]interface{}); ok {
+			for key, value := range properties {
+				properties[key] = removeAdditionalPropertiesWithDepth(value, depth+1)
+			}
+		}
+		for _, field := range []string{"allOf", "anyOf", "oneOf"} {
+			if nested, ok := v[field].([]interface{}); ok {
+				for i, item := range nested {
+					nested[i] = removeAdditionalPropertiesWithDepth(item, depth+1)
+				}
+			}
+		}
+	case "array":
+		if items, ok := v["items"].(map[string]interface{}); ok {
+			v["items"] = removeAdditionalPropertiesWithDepth(items, depth+1)
+		}
+	}
+
+	return v
 }
 
 func (g *GeminiChatResponse) GetResponseText() string {
@@ -215,7 +271,11 @@ func responseGeminiChat2OpenAI(response *GeminiChatResponse) *dto.OpenAITextResp
 				choice.FinishReason = constant.FinishReasonToolCalls
 				choice.Message.ToolCalls = getToolCalls(&candidate)
 			} else {
-				choice.Message.SetStringContent(candidate.Content.Parts[0].Text)
+				var texts []string
+				for _, part := range candidate.Content.Parts {
+					texts = append(texts, part.Text)
+				}
+				choice.Message.SetStringContent(strings.Join(texts, "\n"))
 			}
 		}
 		fullTextResponse.Choices = append(fullTextResponse.Choices, choice)
@@ -227,13 +287,17 @@ func streamResponseGeminiChat2OpenAI(geminiResponse *GeminiChatResponse) *dto.Ch
 	var choice dto.ChatCompletionsStreamResponseChoice
 	//choice.Delta.SetContentString(geminiResponse.GetResponseText())
 	if len(geminiResponse.Candidates) > 0 && len(geminiResponse.Candidates[0].Content.Parts) > 0 {
-		respFirst := geminiResponse.Candidates[0].Content.Parts[0]
-		if respFirst.FunctionCall != nil {
+		respFirstParts := geminiResponse.Candidates[0].Content.Parts
+		if respFirstParts[0].FunctionCall != nil {
 			// function response
 			choice.Delta.ToolCalls = getToolCalls(&geminiResponse.Candidates[0])
 		} else {
 			// text response
-			choice.Delta.SetContentString(respFirst.Text)
+			var texts []string
+			for _, part := range respFirstParts {
+				texts = append(texts, part.Text)
+			}
+			choice.Delta.SetContentString(strings.Join(texts, "\n"))
 		}
 	}
 	var response dto.ChatCompletionsStreamResponse

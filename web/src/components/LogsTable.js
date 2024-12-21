@@ -25,7 +25,7 @@ import {
 } from '@douyinfe/semi-ui';
 import { ITEMS_PER_PAGE } from '../constants';
 import {
-  renderAudioModelPrice,
+  renderAudioModelPrice, renderGroup,
   renderModelPrice, renderModelPriceSimple,
   renderNumber,
   renderQuota,
@@ -215,6 +215,29 @@ const LogsTable = () => {
         ) : (
           <></>
         );
+      },
+    },
+    {
+      title: t('分组'),
+      dataIndex: 'group',
+      render: (text, record, index) => {
+        if (record.type === 0 || record.type === 2) {
+          let other = JSON.parse(record.other);
+          if (other === null) {
+            return <></>;
+          }
+          if (other.group !== undefined) {
+            return (
+              <>
+                {renderGroup(other.group)}
+              </>
+            );
+          } else {
+            return <></>;
+          }
+        } else {
+          return <></>;
+        }
       },
     },
     {
