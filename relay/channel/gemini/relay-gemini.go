@@ -56,6 +56,16 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) (*GeminiChatReque
 				googleSearch = true
 				continue
 			}
+			if tool.Function.Parameters != nil {
+				params, ok := tool.Function.Parameters.(map[string]interface{})
+				if ok {
+					if props, hasProps := params["properties"].(map[string]interface{}); hasProps {
+						if len(props) == 0 {
+							tool.Function.Parameters = nil
+						}
+					}
+				}
+			}
 			functions = append(functions, tool.Function)
 		}
 		if len(functions) > 0 {
@@ -77,7 +87,6 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) (*GeminiChatReque
 			},
 		}
 	}
-
 	if textRequest.ResponseFormat != nil && (textRequest.ResponseFormat.Type == "json_schema" || textRequest.ResponseFormat.Type == "json_object") {
 		geminiRequest.GenerationConfig.ResponseMimeType = "application/json"
 
