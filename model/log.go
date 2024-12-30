@@ -12,16 +12,6 @@ import (
 	"gorm.io/gorm"
 )
 
-var groupCol string
-
-func init() {
-	if common.UsingPostgreSQL {
-		groupCol = `"group"`
-	} else {
-		groupCol = "`group`"
-	}
-}
-
 type Log struct {
 	Id               int    `json:"id" gorm:"index:idx_created_at_id,priority:1"`
 	UserId           int    `json:"user_id" gorm:"index"`
@@ -81,7 +71,7 @@ func RecordLog(userId int, logType int, content string) {
 	if logType == LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
-	username, _ := CacheGetUsername(userId)
+	username, _ := GetUsernameById(userId, false)
 	log := &Log{
 		UserId:    userId,
 		Username:  username,
@@ -102,7 +92,7 @@ func RecordConsumeLog(ctx context.Context, userId int, channelId int, promptToke
 	if !common.LogConsumeEnabled {
 		return
 	}
-	username, _ := CacheGetUsername(userId)
+	username, _ := GetUsernameById(userId, false)
 	otherStr := common.MapToJsonStr(other)
 	log := &Log{
 		UserId:           userId,
