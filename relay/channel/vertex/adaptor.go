@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/jinzhu/copier"
 	"io"
 	"net/http"
 	"one-api/dto"
@@ -15,6 +13,9 @@ import (
 	"one-api/relay/channel/openai"
 	relaycommon "one-api/relay/common"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/jinzhu/copier"
 )
 
 const (
@@ -135,7 +136,7 @@ func (a *Adaptor) ConvertRequest(c *gin.Context, info *relaycommon.RelayInfo, re
 		c.Set("request_model", request.Model)
 		return vertexClaudeReq, nil
 	} else if a.RequestMode == RequestModeGemini {
-		geminiRequest, err := gemini.CovertGemini2OpenAI(*request)
+		geminiRequest, err := gemini.RequestOpenAI2Gemini2(*request)
 		if err != nil {
 			return nil, err
 		}

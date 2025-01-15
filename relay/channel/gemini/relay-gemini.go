@@ -18,7 +18,7 @@ import (
 )
 
 // Setting safety to the lowest possible values since Gemini is already powerless enough
-func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) (*GeminiChatRequest, error) {
+func RequestOpenAI2Gemini2(textRequest dto.GeneralOpenAIRequest) (*GeminiChatRequest, error) {
 
 	geminiRequest := GeminiChatRequest{
 		Contents: make([]GeminiChatContent, 0, len(textRequest.Messages)),

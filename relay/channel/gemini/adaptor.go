@@ -63,7 +63,7 @@ func (a *Adaptor) ConvertRequest(c *gin.Context, info *relaycommon.RelayInfo, re
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	ai, err := CovertGemini2OpenAI(*request)
+	ai, err := RequestOpenAI2Gemini2(*request)
 	if err != nil {
 		return nil, err
 	}
