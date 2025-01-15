@@ -115,7 +115,7 @@ var BatchUpdateInterval = GetEnvOrDefault("BATCH_UPDATE_INTERVAL", 5)
 
 var RelayTimeout = GetEnvOrDefault("RELAY_TIMEOUT", 0) // unit is second
 
-var GeminiSafetySetting = GetEnvOrDefaultString("GEMINI_SAFETY_SETTING", "BLOCK_NONE")
+var GeminiSafetySetting = GetEnvOrDefaultString("GEMINI_SAFETY_SETTING", "OFF")
 
 // https://docs.cohere.com/docs/safety-modes Type; NONE/CONTEXTUAL/STRICT
 var CohereSafetySetting = GetEnvOrDefaultString("COHERE_SAFETY_SETTING", "NONE")
