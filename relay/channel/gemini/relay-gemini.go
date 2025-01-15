@@ -41,7 +41,7 @@ func RequestOpenAI2Gemini2(textRequest dto.GeneralOpenAIRequest) (*GeminiChatReq
 			},
 			{
 				Category:  "HARM_CATEGORY_CIVIC_INTEGRITY",
-				Threshold: common.GeminiSafetySetting,
+				Threshold: "BLOCK_NONE",
 			},
 		},
 		GenerationConfig: GeminiChatGenerationConfig{
