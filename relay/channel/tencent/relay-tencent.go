@@ -39,7 +39,9 @@ func requestOpenAI2Tencent(a *Adaptor, request dto.GeneralOpenAIRequest) *Tencen
 	if request.TopP != 0 {
 		req.TopP = &request.TopP
 	}
-	req.Temperature = request.Temperature
+	if request.Temperature != 0 {
+		req.Temperature = &request.Temperature
+	}
 	return &req
 }
 
