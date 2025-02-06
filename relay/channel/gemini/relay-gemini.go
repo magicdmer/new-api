@@ -18,10 +18,12 @@ import (
 )
 
 func getModelSafetySetting(model string) string {
-	if (strings.Contains(model, "gemini-exp-") || strings.Contains(model, "thinking-exp")) &&
+	if (strings.Contains(model, "exp-") ||
+		strings.Contains(model, "thinking-")) &&
 		common.GeminiSafetySetting == "OFF" {
 		return "BLOCK_NONE"
 	}
+
 	return common.GeminiSafetySetting
 }
 
