@@ -40,17 +40,19 @@ type User struct {
 	DeletedAt        gorm.DeletedAt `gorm:"index"`
 	LinuxDOId        string         `json:"linux_do_id" gorm:"column:linux_do_id;index"`
 	Setting          string         `json:"setting" gorm:"type:text;column:setting"`
+	UnlimitedQuota   bool           `json:"unlimited_quota" gorm:"default:false"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
-		Id:       user.Id,
-		Group:    user.Group,
-		Quota:    user.Quota,
-		Status:   user.Status,
-		Username: user.Username,
-		Setting:  user.Setting,
-		Email:    user.Email,
+		Id:             user.Id,
+		Group:          user.Group,
+		Quota:          user.Quota,
+		Status:         user.Status,
+		Username:       user.Username,
+		Setting:        user.Setting,
+		Email:          user.Email,
+		UnlimitedQuota: user.UnlimitedQuota,
 	}
 	return cache
 }
@@ -361,10 +363,11 @@ func (user *User) Edit(updatePassword bool) error {
 
 	newUser := *user
 	updates := map[string]interface{}{
-		"username":     newUser.Username,
-		"display_name": newUser.DisplayName,
-		"group":        newUser.Group,
-		"quota":        newUser.Quota,
+		"username":        newUser.Username,
+		"display_name":    newUser.DisplayName,
+		"group":           newUser.Group,
+		"quota":           newUser.Quota,
+		"unlimited_quota": newUser.UnlimitedQuota,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password
@@ -829,4 +832,17 @@ func (user *User) FillUserByLinuxDOId() error {
 	}
 	err := DB.Where("linux_do_id = ?", user.LinuxDOId).First(user).Error
 	return err
+}
+
+func (user *User) SetUnlimitedQuota(unlimited bool) {
+	user.UnlimitedQuota = unlimited
+}
+
+func IsUnlimitedQuota(userId int) (bool, error) {
+	var user User
+	err := DB.Select("unlimited_quota").Where("id = ?", userId).First(&user).Error
+	if err != nil {
+		return false, err
+	}
+	return user.UnlimitedQuota, nil
 }
