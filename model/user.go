@@ -359,15 +359,49 @@ func (user *User) HardDelete() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
 	}
-	err := DB.Unscoped().Delete(user).Error
-	return err
+
+	// 开启事务
+	tx := DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 1. 先删除用户本身（使用 Unscoped 确保真实删除）
+	if err := tx.Unscoped().Delete(user).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// 2. 删除用户的令牌（Token）
+	if err := tx.Table("tokens").Unscoped().Where("user_id = ?", user.Id).Delete(&Token{}).Error; err != nil {
+		common.SysError("删除用户令牌失败: " + err.Error())
+	}
+
+	// 3. 删除用户的操作日志（Log）
+	if err := tx.Table("logs").Unscoped().Where("user_id = ?", user.Id).Delete(&Log{}).Error; err != nil {
+		common.SysError("删除用户日志失败: " + err.Error())
+	}
+
+	// 4. 清除该用户作为邀请人的记录
+	if err := tx.Model(&User{}).Where("inviter_id = ?", user.Id).Update("inviter_id", 0).Error; err != nil {
+		common.SysError("清除用户邀请记录失败: " + err.Error())
+	}
+
+	// 5. 清除用户缓存
+	if err := invalidateUserCache(user.Id); err != nil {
+		common.SysError("清除用户缓存失败: " + err.Error())
+	}
+
+	return tx.Commit().Error
 }
 
 // ValidateAndFill check password & user status
 func (user *User) ValidateAndFill() (err error) {
 	// When querying with struct, GORM will only query with non-zero fields,
-	// that means if your field’s value is 0, '', false or other zero values,
-	// it won’t be used to build query conditions
+	// that means if your field's value is 0, '', false or other zero values,
+	// it won't be used to build query conditions
 	password := user.Password
 	username := strings.TrimSpace(user.Username)
 	if username == "" || password == "" {
