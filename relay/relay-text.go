@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bytedance/gopkg/util/gopool"
 	"io"
 	"math"
 	"net/http"
@@ -20,6 +19,8 @@ import (
 	"one-api/setting"
 	"strings"
 	"time"
+
+	"github.com/bytedance/gopkg/util/gopool"
 
 	"github.com/gin-gonic/gin"
 )
@@ -110,16 +111,28 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 	if err != nil {
 		return service.OpenAIErrorWrapperLocal(err, "model_price_error", http.StatusInternalServerError)
 	}
-	// pre-consume quota 预消耗配额
-	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
-	if openaiErr != nil {
-		return openaiErr
+
+	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 	}
-	defer func() {
+
+	isUnlimited, err := model.IsUnlimitedQuota(userQuota)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "check_quota_failed", http.StatusInternalServerError)
+	}
+	if !isUnlimited {
+		// pre-consume quota 预消耗配额
+		preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
 		if openaiErr != nil {
-			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+			return openaiErr
 		}
-	}()
+		defer func() {
+			if openaiErr != nil {
+				returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+			}
+		}()
+	}
 	includeUsage := false
 	// 判断用户是否需要返回使用情况
 	if textRequest.StreamOptions != nil && textRequest.StreamOptions.IncludeUsage {
@@ -244,6 +257,18 @@ func preConsumeQuota(c *gin.Context, preConsumedQuota int, relayInfo *relaycommo
 	if err != nil {
 		return 0, 0, service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 	}
+
+	// 检查用户是否有无限额度
+	user, err := model.GetUserById(relayInfo.UserId, false)
+	if err != nil {
+		return 0, 0, service.OpenAIErrorWrapperLocal(err, "get_user_failed", http.StatusInternalServerError)
+	}
+
+	// 如果用户有无限额度，则跳过额度检查
+	if user.UnlimitedQuota {
+		return 0, userQuota, nil
+	}
+
 	if userQuota <= 0 {
 		return 0, 0, service.OpenAIErrorWrapperLocal(errors.New("user quota is not enough"), "insufficient_user_quota", http.StatusForbidden)
 	}
@@ -319,7 +344,7 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	usePrice := priceData.UsePrice
 
 	quota := 0
-	if !priceData.UsePrice {
+	if !usePrice {
 		quota = promptTokens + int(math.Round(float64(completionTokens)*completionRatio))
 		quota = int(math.Round(float64(quota) * ratio))
 		if ratio != 0 && quota <= 0 {

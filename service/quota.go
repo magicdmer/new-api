@@ -59,6 +59,17 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
+
+	// 检查用户是否有无限额度
+	user, err := model.GetUserById(relayInfo.UserId, false)
+	if err != nil {
+		return err
+	}
+
+	if user.UnlimitedQuota {
+		return nil
+	}
+
 	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 	if err != nil {
 		return err

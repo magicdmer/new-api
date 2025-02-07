@@ -3,14 +3,16 @@ package relay
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"net/http"
 	"one-api/common"
 	"one-api/dto"
+	"one-api/model"
 	relaycommon "one-api/relay/common"
 	"one-api/service"
 	"one-api/setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 func WssHelper(c *gin.Context, ws *websocket.Conn) (openaiErr *dto.OpenAIErrorWithStatusCode) {
@@ -73,17 +75,28 @@ func WssHelper(c *gin.Context, ws *websocket.Conn) (openaiErr *dto.OpenAIErrorWi
 		relayInfo.UsePrice = true
 	}
 
-	// pre-consume quota 预消耗配额
-	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, preConsumedQuota, relayInfo)
-	if openaiErr != nil {
-		return openaiErr
+	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 	}
 
-	defer func() {
+	isUnlimited, err := model.IsUnlimitedQuota(userQuota)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "check_quota_failed", http.StatusInternalServerError)
+	}
+
+	if !isUnlimited {
+		// pre-consume quota 预消耗配额
+		preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, preConsumedQuota, relayInfo)
 		if openaiErr != nil {
-			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+			return openaiErr
 		}
-	}()
+		defer func() {
+			if openaiErr != nil {
+				returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+			}
+		}()
+	}
 
 	adaptor := GetAdaptor(relayInfo.ApiType)
 	if adaptor == nil {

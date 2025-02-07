@@ -3,7 +3,6 @@ package relay
 import (
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"one-api/common"
 	"one-api/dto"
@@ -14,6 +13,8 @@ import (
 	"one-api/service"
 	"one-api/setting"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 func getAndValidAudioRequest(c *gin.Context, info *relaycommon.RelayInfo) (*dto.AudioRequest, error) {
@@ -84,15 +85,22 @@ func AudioHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 	if err != nil {
 		return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 	}
-	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
-	if openaiErr != nil {
-		return openaiErr
+
+	isUnlimited, err := model.IsUnlimitedQuota(userQuota)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "check_quota_failed", http.StatusInternalServerError)
 	}
-	defer func() {
+	if !isUnlimited {
+		preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
 		if openaiErr != nil {
-			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+			return openaiErr
 		}
-	}()
+		defer func() {
+			if openaiErr != nil {
+				returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+			}
+		}()
+	}
 
 	err = helper.ModelMappedHelper(c, relayInfo)
 	if err != nil {

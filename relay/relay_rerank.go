@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"one-api/common"
 	"one-api/dto"
+	"one-api/model"
 	relaycommon "one-api/relay/common"
 	"one-api/relay/helper"
 	"one-api/service"
+
+	"github.com/gin-gonic/gin"
 )
 
 func getRerankPromptToken(rerankRequest dto.RerankRequest) int {
@@ -54,16 +56,28 @@ func RerankHelper(c *gin.Context, relayMode int) (openaiErr *dto.OpenAIErrorWith
 	if err != nil {
 		return service.OpenAIErrorWrapperLocal(err, "model_price_error", http.StatusInternalServerError)
 	}
-	// pre-consume quota 预消耗配额
-	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
-	if openaiErr != nil {
-		return openaiErr
+
+	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 	}
-	defer func() {
+
+	isUnlimited, err := model.IsUnlimitedQuota(userQuota)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "check_quota_failed", http.StatusInternalServerError)
+	}
+	if !isUnlimited {
+		// pre-consume quota 预消耗配额
+		preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
 		if openaiErr != nil {
-			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+			return openaiErr
 		}
-	}()
+		defer func() {
+			if openaiErr != nil {
+				returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+			}
+		}()
+	}
 
 	adaptor := GetAdaptor(relayInfo.ApiType)
 	if adaptor == nil {

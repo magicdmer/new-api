@@ -554,6 +554,9 @@ func UpdateUser(c *gin.Context) {
 	if originUser.Quota != updatedUser.Quota {
 		model.RecordLog(originUser.Id, model.LogTypeManage, fmt.Sprintf("管理员将用户额度从 %s修改为 %s", common.LogQuota(originUser.Quota), common.LogQuota(updatedUser.Quota)))
 	}
+	if originUser.UnlimitedQuota != updatedUser.UnlimitedQuota {
+		model.RecordLog(originUser.Id, model.LogTypeManage, fmt.Sprintf("管理员将用户无限额度状态从 %v 修改为 %v", originUser.UnlimitedQuota, updatedUser.UnlimitedQuota))
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
