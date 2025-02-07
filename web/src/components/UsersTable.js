@@ -208,11 +208,11 @@ const UsersTable = () => {
               </Button>
               <Popconfirm
                 title={t('确定是否要注销此用户？')}
-                content={t('相当于删除用户，此修改将不可逆')}
+                content={t('此操作将永久删除该用户的所有数据，此修改将不可逆')}
                 okType={'danger'}
                 position={'left'}
                 onConfirm={() => {
-                  manageUser(record.id, 'delete', record).then(() => {
+                  manageUser(record.id, 'hard_delete', record).then(() => {
                     removeRecord(record.id);
                   });
                 }}
@@ -244,15 +244,12 @@ const UsersTable = () => {
   });
 
   const removeRecord = (key) => {
-    let newDataSource = [...users];
     if (key != null) {
-      let idx = newDataSource.findIndex((data) => data.id === key);
-
-      if (idx > -1) {
-        // update deletedAt
-        newDataSource[idx].DeletedAt = new Date();
+        // 直接从列表中过滤掉被删除的用户
+        const newDataSource = users.filter(user => user.id !== key);
         setUsers(newDataSource);
-      }
+        // 更新用户总数
+        setUserCount(prev => prev - 1);
     }
   };
 
