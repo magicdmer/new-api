@@ -10,12 +10,13 @@ import (
 
 // Change UserCache struct to userCache
 type userCache struct {
-	Id       int    `json:"id"`
-	Group    string `json:"group"`
-	Quota    int    `json:"quota"`
-	Status   int    `json:"status"`
-	Role     int    `json:"role"`
-	Username string `json:"username"`
+	Id             int    `json:"id"`
+	Group          string `json:"group"`
+	Quota          int    `json:"quota"`
+	Status         int    `json:"status"`
+	Role           int    `json:"role"`
+	Username       string `json:"username"`
+	UnlimitedQuota bool   `json:"unlimited_quota"`
 }
 
 // Rename all exported functions to private ones
@@ -92,6 +93,22 @@ func updateUserNameCache(userId int, username string) error {
 	)
 }
 
+// updateUserUnlimitedQuotaCache updates user unlimited quota cache
+func updateUserUnlimitedQuotaCache(userId int, unlimitedQuota bool) error {
+	if !common.RedisEnabled {
+		return nil
+	}
+	value := "0"
+	if unlimitedQuota {
+		value = "1"
+	}
+	return common.RedisSet(
+		fmt.Sprintf("user:%d:unlimited_quota", userId),
+		value,
+		time.Duration(constant.UserId2QuotaCacheSeconds)*time.Second,
+	)
+}
+
 // updateUserCache updates all user cache fields
 func updateUserCache(userId int, username string, userGroup string, quota int, status int) error {
 	if !common.RedisEnabled {
@@ -112,6 +129,16 @@ func updateUserCache(userId int, username string, userGroup string, quota int, s
 
 	if err := updateUserNameCache(userId, username); err != nil {
 		return fmt.Errorf("update username cache: %w", err)
+	}
+
+	// Get user from database to update unlimited quota cache
+	var user User
+	if err := DB.First(&user, userId).Error; err != nil {
+		return fmt.Errorf("get user from db: %w", err)
+	}
+
+	if err := updateUserUnlimitedQuotaCache(userId, user.UnlimitedQuota); err != nil {
+		return fmt.Errorf("update unlimited quota cache: %w", err)
 	}
 
 	return nil
@@ -157,6 +184,18 @@ func getUserNameCache(userId int) (string, error) {
 	return common.RedisGet(fmt.Sprintf(constant.UserUsernameKeyFmt, userId))
 }
 
+// getUserUnlimitedQuotaCache gets user unlimited quota from cache
+func getUserUnlimitedQuotaCache(userId int) (bool, error) {
+	if !common.RedisEnabled {
+		return false, nil
+	}
+	value, err := common.RedisGet(fmt.Sprintf("user:%d:unlimited_quota", userId))
+	if err != nil {
+		return false, err
+	}
+	return value == "1", nil
+}
+
 // getUserCache gets complete user cache
 func getUserCache(userId int) (*userCache, error) {
 	if !common.RedisEnabled {
@@ -183,12 +222,18 @@ func getUserCache(userId int) (*userCache, error) {
 		return nil, fmt.Errorf("get username cache: %w", err)
 	}
 
+	unlimitedQuota, err := getUserUnlimitedQuotaCache(userId)
+	if err != nil {
+		return nil, fmt.Errorf("get unlimited quota cache: %w", err)
+	}
+
 	return &userCache{
-		Id:       userId,
-		Group:    group,
-		Quota:    quota,
-		Status:   status,
-		Username: username,
+		Id:             userId,
+		Group:          group,
+		Quota:          quota,
+		Status:         status,
+		Username:       username,
+		UnlimitedQuota: unlimitedQuota,
 	}, nil
 }
 
@@ -203,4 +248,14 @@ func cacheIncrUserQuota(userId int, delta int64) error {
 
 func cacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)
+}
+
+func cacheSetUser(user *User) error {
+	return common.RedisHSetObj(
+		fmt.Sprintf("user:%d", user.Id),
+		map[string]interface{}{
+			"unlimited_quota": user.UnlimitedQuota,
+		},
+		time.Duration(constant.UserId2QuotaCacheSeconds)*time.Second,
+	)
 }

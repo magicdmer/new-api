@@ -38,6 +38,7 @@ type User struct {
 	InviterId        int            `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
 	DeletedAt        gorm.DeletedAt `gorm:"index"`
 	LinuxDOId        string         `json:"linux_do_id" gorm:"column:linux_do_id;index"`
+	UnlimitedQuota   bool           `json:"unlimited_quota" gorm:"default:false"`
 }
 
 func (user *User) GetAccessToken() string {
@@ -325,10 +326,11 @@ func (user *User) Edit(updatePassword bool) error {
 
 	newUser := *user
 	updates := map[string]interface{}{
-		"username":     newUser.Username,
-		"display_name": newUser.DisplayName,
-		"group":        newUser.Group,
-		"quota":        newUser.Quota,
+		"username":        newUser.Username,
+		"display_name":    newUser.DisplayName,
+		"group":           newUser.Group,
+		"quota":           newUser.Quota,
+		"unlimited_quota": newUser.UnlimitedQuota,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password
@@ -760,4 +762,17 @@ func (u *User) FillUserByLinuxDOId() error {
 	}
 	err := DB.Where("linux_do_id = ?", u.LinuxDOId).First(u).Error
 	return err
+}
+
+func (user *User) SetUnlimitedQuota(unlimited bool) {
+	user.UnlimitedQuota = unlimited
+}
+
+func IsUnlimitedQuota(userId int) (bool, error) {
+	var user User
+	err := DB.Select("unlimited_quota").Where("id = ?", userId).First(&user).Error
+	if err != nil {
+		return false, err
+	}
+	return user.UnlimitedQuota, nil
 }

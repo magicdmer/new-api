@@ -268,6 +268,18 @@ func preConsumeQuota(c *gin.Context, preConsumedQuota int, relayInfo *relaycommo
 	if err != nil {
 		return 0, 0, service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 	}
+
+	// 检查用户是否有无限额度
+	user, err := model.GetUserById(relayInfo.UserId, false)
+	if err != nil {
+		return 0, 0, service.OpenAIErrorWrapperLocal(err, "get_user_failed", http.StatusInternalServerError)
+	}
+
+	// 如果用户有无限额度，则跳过额度检查
+	if user.UnlimitedQuota {
+		return 0, userQuota, nil
+	}
+
 	if userQuota <= 0 {
 		return 0, 0, service.OpenAIErrorWrapperLocal(errors.New("user quota is not enough"), "insufficient_user_quota", http.StatusForbidden)
 	}

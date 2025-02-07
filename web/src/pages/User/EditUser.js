@@ -43,8 +43,15 @@ const EditUser = (props) => {
     quota,
     group,
   } = inputs;
+  const [unlimitedQuota, setUnlimitedQuota] = useState(false);
   const handleInputChange = (name, value) => {
     setInputs((inputs) => ({ ...inputs, [name]: value }));
+    if (name === 'unlimited_quota') {
+      setUnlimitedQuota(value);
+      if (value) {
+        setInputs((inputs) => ({ ...inputs, quota: 0 }));
+      }
+    }
   };
   const fetchGroups = async () => {
     try {
@@ -75,6 +82,7 @@ const EditUser = (props) => {
     if (success) {
       data.password = '';
       setInputs(data);
+      setUnlimitedQuota(data.unlimited_quota);
     } else {
       showError(message);
     }
@@ -208,17 +216,31 @@ const EditUser = (props) => {
               <div style={{ marginTop: 20 }}>
                 <Typography.Text>{`${t('剩余额度')}${renderQuotaWithPrompt(quota)}`}</Typography.Text>
               </div>
-              <Space>
-                <Input
-                  name='quota'
-                  placeholder={t('请输入新的剩余额度')}
-                  onChange={(value) => handleInputChange('quota', value)}
-                  value={quota}
-                  type={'number'}
-                  autoComplete='new-password'
-                />
-                <Button onClick={openAddQuotaModal}>{t('添加额度')}</Button>
-              </Space>
+              <div style={{ marginTop: 20 }}>
+                <Typography.Text>{t('额度设置')}</Typography.Text>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: 8 }}>
+                  <Space>
+                    <Input
+                      name='quota'
+                      placeholder={t('请输入新的剩余额度')}
+                      onChange={(value) => handleInputChange('quota', value)}
+                      value={quota}
+                      type={'number'}
+                      autoComplete='new-password'
+                      disabled={unlimitedQuota}
+                    />
+                    <Button onClick={openAddQuotaModal} disabled={unlimitedQuota}>
+                      {t('添加额度')}
+                    </Button>
+                    <Button
+                      type={unlimitedQuota ? 'primary' : 'default'}
+                      onClick={() => handleInputChange('unlimited_quota', !unlimitedQuota)}
+                    >
+                      {t('无限额度')}
+                    </Button>
+                  </Space>
+                </div>
+              </div>
             </>
           )}
           <Divider style={{ marginTop: 20 }}>{t('以下信息不可修改')}</Divider>
