@@ -100,8 +100,8 @@ func ImageHelper(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 	}
 
 	groupRatio := setting.GetGroupRatio(relayInfo.Group)
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 
+	// 计算所需配额
 	sizeRatio := 1.0
 	// Size
 	if imageRequest.Size == "256x256" {
@@ -125,8 +125,21 @@ func ImageHelper(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 	imageRatio := modelPrice * sizeRatio * qualityRatio * float64(imageRequest.N)
 	quota := int(imageRatio * groupRatio * common.QuotaPerUnit)
 
-	if userQuota-quota < 0 {
-		return service.OpenAIErrorWrapperLocal(errors.New(fmt.Sprintf("image pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, quota)), "insufficient_user_quota", http.StatusBadRequest)
+	var userQuota int
+	// 检查用户是否有无限额度
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "check_unlimited_quota_failed", http.StatusInternalServerError)
+	}
+
+	if !isUnlimited {
+		userQuota, err = model.GetUserQuota(relayInfo.UserId, false)
+		if err != nil {
+			return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
+		}
+		if userQuota-quota < 0 {
+			return service.OpenAIErrorWrapperLocal(errors.New(fmt.Sprintf("image pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, quota)), "insufficient_user_quota", http.StatusBadRequest)
+		}
 	}
 
 	adaptor := GetAdaptor(relayInfo.ApiType)
@@ -184,7 +197,12 @@ func ImageHelper(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 	}
 
 	logContent := fmt.Sprintf("大小 %s, 品质 %s", imageRequest.Size, quality)
-	postConsumeQuota(c, relayInfo, imageRequest.Model, usage, 0, 0, userQuota, 0, groupRatio, imageRatio, true, logContent)
+	if !isUnlimited {
+		postConsumeQuota(c, relayInfo, imageRequest.Model, usage, 0, 0, userQuota, 0, groupRatio, imageRatio, true, logContent)
+	} else {
+		logContent = fmt.Sprintf("%s（无限额度）", logContent)
+		postConsumeQuota(c, relayInfo, imageRequest.Model, usage, 0, 0, 0, 0, groupRatio, imageRatio, true, logContent)
+	}
 
 	return nil
 }

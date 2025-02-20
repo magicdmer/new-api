@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"one-api/common"
 	"one-api/dto"
+	"one-api/model"
 	relaycommon "one-api/relay/common"
 	"one-api/service"
 	"one-api/setting"
@@ -42,7 +43,6 @@ func RerankHelper(c *gin.Context, relayMode int) (openaiErr *dto.OpenAIErrorWith
 
 	// map model name
 	modelMapping := c.GetString("model_mapping")
-	//isModelMapped := false
 	if modelMapping != "" && modelMapping != "{}" {
 		modelMap := make(map[string]string)
 		err := json.Unmarshal([]byte(modelMapping), &modelMap)
@@ -51,8 +51,6 @@ func RerankHelper(c *gin.Context, relayMode int) (openaiErr *dto.OpenAIErrorWith
 		}
 		if modelMap[rerankRequest.Model] != "" {
 			rerankRequest.Model = modelMap[rerankRequest.Model]
-			// set upstream model name
-			//isModelMapped = true
 		}
 	}
 
@@ -75,16 +73,22 @@ func RerankHelper(c *gin.Context, relayMode int) (openaiErr *dto.OpenAIErrorWith
 	}
 	relayInfo.PromptTokens = promptToken
 
-	// pre-consume quota 预消耗配额
-	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, preConsumedQuota, relayInfo)
-	if openaiErr != nil {
-		return openaiErr
+	// 检查用户是否有无限额度
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "check_unlimited_quota_failed", http.StatusInternalServerError)
 	}
-	defer func() {
-		if openaiErr != nil {
-			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+
+	var userQuota int
+	if !isUnlimited {
+		userQuota, err = model.GetUserQuota(relayInfo.UserId, false)
+		if err != nil {
+			return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 		}
-	}()
+		if userQuota < preConsumedQuota {
+			return service.OpenAIErrorWrapperLocal(fmt.Errorf("rerank pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, preConsumedQuota), "insufficient_user_quota", http.StatusBadRequest)
+		}
+	}
 
 	adaptor := GetAdaptor(relayInfo.ApiType)
 	if adaptor == nil {
@@ -124,6 +128,12 @@ func RerankHelper(c *gin.Context, relayMode int) (openaiErr *dto.OpenAIErrorWith
 		service.ResetStatusCode(openaiErr, statusCodeMappingStr)
 		return openaiErr
 	}
-	postConsumeQuota(c, relayInfo, rerankRequest.Model, usage.(*dto.Usage), ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, success, "")
+
+	if !isUnlimited {
+		postConsumeQuota(c, relayInfo, rerankRequest.Model, usage.(*dto.Usage), ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, success, "")
+	} else {
+		logContent := "（无限额度）"
+		postConsumeQuota(c, relayInfo, rerankRequest.Model, usage.(*dto.Usage), ratio, 0, 0, modelRatio, groupRatio, modelPrice, success, logContent)
+	}
 	return nil
 }

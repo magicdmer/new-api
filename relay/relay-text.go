@@ -65,7 +65,6 @@ func getAndValidateTextRequest(c *gin.Context, relayInfo *relaycommon.RelayInfo)
 }
 
 func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
-
 	relayInfo := relaycommon.GenRelayInfo(c)
 
 	// get & validate textRequest 获取并验证文本请求
@@ -76,9 +75,7 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 	}
 
 	// map model name
-	//isModelMapped := false
 	modelMapping := c.GetString("model_mapping")
-	//isModelMapped := false
 	if modelMapping != "" && modelMapping != "{}" {
 		modelMap := make(map[string]string)
 		err := json.Unmarshal([]byte(modelMapping), &modelMap)
@@ -86,21 +83,13 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 			return service.OpenAIErrorWrapperLocal(err, "unmarshal_model_mapping_failed", http.StatusInternalServerError)
 		}
 		if modelMap[textRequest.Model] != "" {
-			//isModelMapped = true
 			textRequest.Model = modelMap[textRequest.Model]
-			// set upstream model name
-			//isModelMapped = true
 		}
 	}
 	relayInfo.UpstreamModelName = textRequest.Model
 	relayInfo.RecodeModelName = textRequest.Model
 	modelPrice, getModelPriceSuccess := common.GetModelPrice(textRequest.Model, false)
 	groupRatio := setting.GetGroupRatio(relayInfo.Group)
-
-	var preConsumedQuota int
-	var ratio float64
-	var modelRatio float64
-	//err := service.SensitiveWordsCheck(textRequest)
 
 	if setting.ShouldCheckPromptSensitive() {
 		err = checkRequestSensitive(textRequest, relayInfo)
@@ -123,6 +112,10 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		c.Set("prompt_tokens", promptTokens)
 	}
 
+	var preConsumedQuota int
+	var ratio float64
+	var modelRatio float64
+
 	if !getModelPriceSuccess {
 		preConsumedTokens := common.PreConsumedQuota
 		if textRequest.MaxTokens != 0 {
@@ -135,16 +128,23 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		preConsumedQuota = int(modelPrice * common.QuotaPerUnit * groupRatio)
 	}
 
-	// pre-consume quota 预消耗配额
-	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, preConsumedQuota, relayInfo)
-	if openaiErr != nil {
-		return openaiErr
+	// 检查用户是否有无限额度
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "check_unlimited_quota_failed", http.StatusInternalServerError)
 	}
-	defer func() {
-		if openaiErr != nil {
-			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+
+	var userQuota int
+	if !isUnlimited {
+		userQuota, err = model.GetUserQuota(relayInfo.UserId, false)
+		if err != nil {
+			return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 		}
-	}()
+		if userQuota < preConsumedQuota {
+			return service.OpenAIErrorWrapperLocal(fmt.Errorf("text pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, preConsumedQuota), "insufficient_user_quota", http.StatusBadRequest)
+		}
+	}
+
 	includeUsage := false
 	// 判断用户是否需要返回使用情况
 	if textRequest.StreamOptions != nil && textRequest.StreamOptions.IncludeUsage {
@@ -173,16 +173,6 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 	}
 	adaptor.Init(relayInfo)
 	var requestBody io.Reader
-
-	//if relayInfo.ChannelType == common.ChannelTypeOpenAI && !isModelMapped {
-	//	body, err := common.GetRequestBody(c)
-	//	if err != nil {
-	//		return service.OpenAIErrorWrapperLocal(err, "get_request_body_failed", http.StatusInternalServerError)
-	//	}
-	//	requestBody = bytes.NewBuffer(body)
-	//} else {
-	//
-	//}
 
 	convertedRequest, err := adaptor.ConvertRequest(c, relayInfo, textRequest)
 	if err != nil {
@@ -219,11 +209,21 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		return openaiErr
 	}
 
-	if strings.HasPrefix(relayInfo.RecodeModelName, "gpt-4o-audio") {
-		service.PostAudioConsumeQuota(c, relayInfo, usage.(*dto.Usage), preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, "")
+	if !isUnlimited {
+		if strings.HasPrefix(relayInfo.RecodeModelName, "gpt-4o-audio") {
+			service.PostAudioConsumeQuota(c, relayInfo, usage.(*dto.Usage), preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, "")
+		} else {
+			postConsumeQuota(c, relayInfo, relayInfo.RecodeModelName, usage.(*dto.Usage), ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, "")
+		}
 	} else {
-		postConsumeQuota(c, relayInfo, relayInfo.RecodeModelName, usage.(*dto.Usage), ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, "")
+		logContent := "（无限额度）"
+		if strings.HasPrefix(relayInfo.RecodeModelName, "gpt-4o-audio") {
+			service.PostAudioConsumeQuota(c, relayInfo, usage.(*dto.Usage), 0, 0, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, logContent)
+		} else {
+			postConsumeQuota(c, relayInfo, relayInfo.RecodeModelName, usage.(*dto.Usage), ratio, 0, 0, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, logContent)
+		}
 	}
+
 	return nil
 }
 

@@ -77,19 +77,23 @@ func AudioHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 	groupRatio := setting.GetGroupRatio(relayInfo.Group)
 	ratio := modelRatio * groupRatio
 	preConsumedQuota := int(float64(preConsumedTokens) * ratio)
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+
+	// 检查用户是否有无限额度
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
 	if err != nil {
-		return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
+		return service.OpenAIErrorWrapperLocal(err, "check_unlimited_quota_failed", http.StatusInternalServerError)
 	}
-	preConsumedQuota, userQuota, openaiErr = preConsumeQuota(c, preConsumedQuota, relayInfo)
-	if openaiErr != nil {
-		return openaiErr
-	}
-	defer func() {
-		if openaiErr != nil {
-			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+
+	var userQuota int
+	if !isUnlimited {
+		userQuota, err = model.GetUserQuota(relayInfo.UserId, false)
+		if err != nil {
+			return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 		}
-	}()
+		if userQuota < preConsumedQuota {
+			return service.OpenAIErrorWrapperLocal(errors.New(fmt.Sprintf("audio pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, preConsumedQuota)), "insufficient_user_quota", http.StatusBadRequest)
+		}
+	}
 
 	// map model name
 	modelMapping := c.GetString("model_mapping")
@@ -140,7 +144,12 @@ func AudioHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		return openaiErr
 	}
 
-	postConsumeQuota(c, relayInfo, audioRequest.Model, usage.(*dto.Usage), ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, 0, false, "")
+	if !isUnlimited {
+		postConsumeQuota(c, relayInfo, audioRequest.Model, usage.(*dto.Usage), ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, 0, false, "")
+	} else {
+		logContent := "（无限额度）"
+		postConsumeQuota(c, relayInfo, audioRequest.Model, usage.(*dto.Usage), ratio, 0, 0, modelRatio, groupRatio, 0, false, logContent)
+	}
 
 	return nil
 }
