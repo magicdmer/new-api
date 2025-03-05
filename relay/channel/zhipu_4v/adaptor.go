@@ -44,15 +44,16 @@ func (a *Adaptor) ConvertRequest(c *gin.Context, info *relaycommon.RelayInfo, re
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	
-	// TopP (0.0, 1.0)
-	request.TopP = math.Min(0.99, request.TopP)
-	request.TopP = math.Max(0.01, request.TopP)
 
 	// Temperature (0.0, 1.0)
-	request.Temperature = math.Min(0.99, request.Temperature)
-	request.Temperature = math.Max(0.01, request.Temperature)
-	
+	if request.Temperature != nil {
+		temp := math.Min(0.99, math.Max(0.01, *request.Temperature))
+		request.Temperature = &temp
+	}
+
+	// TopP (0.0, 1.0)
+	request.TopP = math.Min(0.99, math.Max(0.01, request.TopP))
+
 	return requestOpenAI2Zhipu(*request), nil
 }
 
@@ -64,7 +65,6 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 	//TODO implement me
 	return nil, errors.New("not implemented")
 }
-
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
 	return channel.DoApiRequest(a, c, info, requestBody)
