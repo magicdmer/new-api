@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bytedance/gopkg/util/gopool"
 	"io"
 	"math"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"one-api/model"
 	relaycommon "one-api/relay/common"
 	relayconstant "one-api/relay/constant"
+	"one-api/relay/helper"
 	"one-api/service"
 	"one-api/setting"
 	"strings"
@@ -65,6 +67,7 @@ func getAndValidateTextRequest(c *gin.Context, relayInfo *relaycommon.RelayInfo)
 }
 
 func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
+
 	relayInfo := relaycommon.GenRelayInfo(c)
 
 	// get & validate textRequest 获取并验证文本请求
@@ -74,29 +77,20 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		return service.OpenAIErrorWrapperLocal(err, "invalid_text_request", http.StatusBadRequest)
 	}
 
-	// map model name
-	modelMapping := c.GetString("model_mapping")
-	if modelMapping != "" && modelMapping != "{}" {
-		modelMap := make(map[string]string)
-		err := json.Unmarshal([]byte(modelMapping), &modelMap)
-		if err != nil {
-			return service.OpenAIErrorWrapperLocal(err, "unmarshal_model_mapping_failed", http.StatusInternalServerError)
-		}
-		if modelMap[textRequest.Model] != "" {
-			textRequest.Model = modelMap[textRequest.Model]
-		}
-	}
-	relayInfo.UpstreamModelName = textRequest.Model
-	relayInfo.RecodeModelName = textRequest.Model
-	modelPrice, getModelPriceSuccess := common.GetModelPrice(textRequest.Model, false)
-	groupRatio := setting.GetGroupRatio(relayInfo.Group)
-
 	if setting.ShouldCheckPromptSensitive() {
-		err = checkRequestSensitive(textRequest, relayInfo)
+		words, err := checkRequestSensitive(textRequest, relayInfo)
 		if err != nil {
+			common.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ", ")))
 			return service.OpenAIErrorWrapperLocal(err, "sensitive_words_detected", http.StatusBadRequest)
 		}
 	}
+
+	err = helper.ModelMappedHelper(c, relayInfo)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "model_mapped_error", http.StatusInternalServerError)
+	}
+
+	textRequest.Model = relayInfo.UpstreamModelName
 
 	// 获取 promptTokens，如果上下文中已经存在，则直接使用
 	var promptTokens int
@@ -112,39 +106,20 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		c.Set("prompt_tokens", promptTokens)
 	}
 
-	var preConsumedQuota int
-	var ratio float64
-	var modelRatio float64
-
-	if !getModelPriceSuccess {
-		preConsumedTokens := common.PreConsumedQuota
-		if textRequest.MaxTokens != 0 {
-			preConsumedTokens = promptTokens + int(textRequest.MaxTokens)
-		}
-		modelRatio = common.GetModelRatio(textRequest.Model)
-		ratio = modelRatio * groupRatio
-		preConsumedQuota = int(float64(preConsumedTokens) * ratio)
-	} else {
-		preConsumedQuota = int(modelPrice * common.QuotaPerUnit * groupRatio)
-	}
-
-	// 检查用户是否有无限额度
-	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	priceData, err := helper.ModelPriceHelper(c, relayInfo, promptTokens, int(textRequest.MaxTokens))
 	if err != nil {
-		return service.OpenAIErrorWrapperLocal(err, "check_unlimited_quota_failed", http.StatusInternalServerError)
+		return service.OpenAIErrorWrapperLocal(err, "model_price_error", http.StatusInternalServerError)
 	}
-
-	var userQuota int
-	if !isUnlimited {
-		userQuota, err = model.GetUserQuota(relayInfo.UserId, false)
-		if err != nil {
-			return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
-		}
-		if userQuota < preConsumedQuota {
-			return service.OpenAIErrorWrapperLocal(fmt.Errorf("text pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, preConsumedQuota), "insufficient_user_quota", http.StatusBadRequest)
-		}
+	// pre-consume quota 预消耗配额
+	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
+	if openaiErr != nil {
+		return openaiErr
 	}
-
+	defer func() {
+		if openaiErr != nil {
+			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+		}
+	}()
 	includeUsage := false
 	// 判断用户是否需要返回使用情况
 	if textRequest.StreamOptions != nil && textRequest.StreamOptions.IncludeUsage {
@@ -173,6 +148,16 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 	}
 	adaptor.Init(relayInfo)
 	var requestBody io.Reader
+
+	//if relayInfo.ChannelType == common.ChannelTypeOpenAI && !isModelMapped {
+	//	body, err := common.GetRequestBody(c)
+	//	if err != nil {
+	//		return service.OpenAIErrorWrapperLocal(err, "get_request_body_failed", http.StatusInternalServerError)
+	//	}
+	//	requestBody = bytes.NewBuffer(body)
+	//} else {
+	//
+	//}
 
 	convertedRequest, err := adaptor.ConvertRequest(c, relayInfo, textRequest)
 	if err != nil {
@@ -209,21 +194,11 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		return openaiErr
 	}
 
-	if !isUnlimited {
-		if strings.HasPrefix(relayInfo.RecodeModelName, "gpt-4o-audio") {
-			service.PostAudioConsumeQuota(c, relayInfo, usage.(*dto.Usage), preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, "")
-		} else {
-			postConsumeQuota(c, relayInfo, relayInfo.RecodeModelName, usage.(*dto.Usage), ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, "")
-		}
+	if strings.HasPrefix(relayInfo.OriginModelName, "gpt-4o-audio") {
+		service.PostAudioConsumeQuota(c, relayInfo, usage.(*dto.Usage), preConsumedQuota, userQuota, priceData, "")
 	} else {
-		logContent := "（无限额度）"
-		if strings.HasPrefix(relayInfo.RecodeModelName, "gpt-4o-audio") {
-			service.PostAudioConsumeQuota(c, relayInfo, usage.(*dto.Usage), 0, 0, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, logContent)
-		} else {
-			postConsumeQuota(c, relayInfo, relayInfo.RecodeModelName, usage.(*dto.Usage), ratio, 0, 0, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, logContent)
-		}
+		postConsumeQuota(c, relayInfo, usage.(*dto.Usage), preConsumedQuota, userQuota, priceData, "")
 	}
-
 	return nil
 }
 
@@ -247,19 +222,20 @@ func getPromptTokens(textRequest *dto.GeneralOpenAIRequest, info *relaycommon.Re
 	return promptTokens, err
 }
 
-func checkRequestSensitive(textRequest *dto.GeneralOpenAIRequest, info *relaycommon.RelayInfo) error {
+func checkRequestSensitive(textRequest *dto.GeneralOpenAIRequest, info *relaycommon.RelayInfo) ([]string, error) {
 	var err error
+	var words []string
 	switch info.RelayMode {
 	case relayconstant.RelayModeChatCompletions:
-		err = service.CheckSensitiveMessages(textRequest.Messages)
+		words, err = service.CheckSensitiveMessages(textRequest.Messages)
 	case relayconstant.RelayModeCompletions:
-		err = service.CheckSensitiveInput(textRequest.Prompt)
+		words, err = service.CheckSensitiveInput(textRequest.Prompt)
 	case relayconstant.RelayModeModerations:
-		err = service.CheckSensitiveInput(textRequest.Input)
+		words, err = service.CheckSensitiveInput(textRequest.Input)
 	case relayconstant.RelayModeEmbeddings:
-		err = service.CheckSensitiveInput(textRequest.Input)
+		words, err = service.CheckSensitiveInput(textRequest.Input)
 	}
-	return err
+	return words, err
 }
 
 // 预扣费并返回用户剩余配额
@@ -268,24 +244,13 @@ func preConsumeQuota(c *gin.Context, preConsumedQuota int, relayInfo *relaycommo
 	if err != nil {
 		return 0, 0, service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
 	}
-
-	// 检查用户是否有无限额度
-	user, err := model.GetUserById(relayInfo.UserId, false)
-	if err != nil {
-		return 0, 0, service.OpenAIErrorWrapperLocal(err, "get_user_failed", http.StatusInternalServerError)
-	}
-
-	// 如果用户有无限额度，则跳过额度检查
-	if user.UnlimitedQuota {
-		return 0, userQuota, nil
-	}
-
 	if userQuota <= 0 {
 		return 0, 0, service.OpenAIErrorWrapperLocal(errors.New("user quota is not enough"), "insufficient_user_quota", http.StatusForbidden)
 	}
 	if userQuota-preConsumedQuota < 0 {
-		return 0, 0, service.OpenAIErrorWrapperLocal(fmt.Errorf("chat pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, preConsumedQuota), "insufficient_user_quota", http.StatusBadRequest)
+		return 0, 0, service.OpenAIErrorWrapperLocal(fmt.Errorf("chat pre-consumed quota failed, user quota: %s, need quota: %s", common.FormatQuota(userQuota), common.FormatQuota(preConsumedQuota)), "insufficient_user_quota", http.StatusForbidden)
 	}
+	relayInfo.UserQuota = userQuota
 	if userQuota > 100*preConsumedQuota {
 		// 用户额度充足，判断令牌额度是否充足
 		if !relayInfo.TokenUnlimited {
@@ -294,18 +259,18 @@ func preConsumeQuota(c *gin.Context, preConsumedQuota int, relayInfo *relaycommo
 			if tokenQuota > 100*preConsumedQuota {
 				// 令牌额度充足，信任令牌
 				preConsumedQuota = 0
-				common.LogInfo(c, fmt.Sprintf("user %d quota %d and token %d quota %d are enough, trusted and no need to pre-consume", relayInfo.UserId, userQuota, relayInfo.TokenId, tokenQuota))
+				common.LogInfo(c, fmt.Sprintf("user %d quota %s and token %d quota %d are enough, trusted and no need to pre-consume", relayInfo.UserId, common.FormatQuota(userQuota), relayInfo.TokenId, tokenQuota))
 			}
 		} else {
 			// in this case, we do not pre-consume quota
 			// because the user has enough quota
 			preConsumedQuota = 0
-			common.LogInfo(c, fmt.Sprintf("user %d with unlimited token has enough quota %d, trusted and no need to pre-consume", relayInfo.UserId, userQuota))
+			common.LogInfo(c, fmt.Sprintf("user %d with unlimited token has enough quota %s, trusted and no need to pre-consume", relayInfo.UserId, common.FormatQuota(userQuota)))
 		}
 	}
 
 	if preConsumedQuota > 0 {
-		err = model.PreConsumeTokenQuota(relayInfo, preConsumedQuota)
+		err := service.PreConsumeTokenQuota(relayInfo, preConsumedQuota)
 		if err != nil {
 			return 0, 0, service.OpenAIErrorWrapperLocal(err, "pre_consume_token_quota_failed", http.StatusForbidden)
 		}
@@ -319,20 +284,19 @@ func preConsumeQuota(c *gin.Context, preConsumedQuota int, relayInfo *relaycommo
 
 func returnPreConsumedQuota(c *gin.Context, relayInfo *relaycommon.RelayInfo, userQuota int, preConsumedQuota int) {
 	if preConsumedQuota != 0 {
-		go func() {
+		gopool.Go(func() {
 			relayInfoCopy := *relayInfo
 
-			err := model.PostConsumeQuota(&relayInfoCopy, userQuota, -preConsumedQuota, 0, false)
+			err := service.PostConsumeQuota(&relayInfoCopy, -preConsumedQuota, 0, false)
 			if err != nil {
 				common.SysError("error return pre-consumed quota: " + err.Error())
 			}
-		}()
+		})
 	}
 }
 
-func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelName string,
-	usage *dto.Usage, ratio float64, preConsumedQuota int, userQuota int, modelRatio float64, groupRatio float64,
-	modelPrice float64, usePrice bool, extraContent string) {
+func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
+	usage *dto.Usage, preConsumedQuota int, userQuota int, priceData helper.PriceData, extraContent string) {
 	if usage == nil {
 		usage = &dto.Usage{
 			PromptTokens:     relayInfo.PromptTokens,
@@ -344,12 +308,18 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelN
 	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
 	promptTokens := usage.PromptTokens
 	completionTokens := usage.CompletionTokens
+	modelName := relayInfo.OriginModelName
 
 	tokenName := ctx.GetString("token_name")
-	completionRatio := common.GetCompletionRatio(modelName)
+	completionRatio := setting.GetCompletionRatio(modelName)
+	ratio := priceData.ModelRatio * priceData.GroupRatio
+	modelRatio := priceData.ModelRatio
+	groupRatio := priceData.GroupRatio
+	modelPrice := priceData.ModelPrice
+	usePrice := priceData.UsePrice
 
 	quota := 0
-	if !usePrice {
+	if !priceData.UsePrice {
 		quota = promptTokens + int(math.Round(float64(completionTokens)*completionRatio))
 		quota = int(math.Round(float64(quota) * ratio))
 		if ratio != 0 && quota <= 0 {
@@ -380,7 +350,7 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelN
 		//}
 		quotaDelta := quota - preConsumedQuota
 		if quotaDelta != 0 {
-			err := model.PostConsumeQuota(relayInfo, userQuota, quotaDelta, preConsumedQuota, true)
+			err := service.PostConsumeQuota(relayInfo, quotaDelta, preConsumedQuota, true)
 			if err != nil {
 				common.LogError(ctx, "error consuming token remain quota: "+err.Error())
 			}

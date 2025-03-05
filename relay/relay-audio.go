@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -11,8 +10,10 @@ import (
 	"one-api/model"
 	relaycommon "one-api/relay/common"
 	relayconstant "one-api/relay/constant"
+	"one-api/relay/helper"
 	"one-api/service"
 	"one-api/setting"
+	"strings"
 )
 
 func getAndValidAudioRequest(c *gin.Context, info *relaycommon.RelayInfo) (*dto.AudioRequest, error) {
@@ -27,8 +28,9 @@ func getAndValidAudioRequest(c *gin.Context, info *relaycommon.RelayInfo) (*dto.
 			return nil, errors.New("model is required")
 		}
 		if setting.ShouldCheckPromptSensitive() {
-			err := service.CheckSensitiveInput(audioRequest.Input)
+			words, err := service.CheckSensitiveInput(audioRequest.Input)
 			if err != nil {
+				common.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ",")))
 				return nil, err
 			}
 		}
@@ -73,41 +75,31 @@ func AudioHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		relayInfo.PromptTokens = promptTokens
 	}
 
-	modelRatio := common.GetModelRatio(audioRequest.Model)
-	groupRatio := setting.GetGroupRatio(relayInfo.Group)
-	ratio := modelRatio * groupRatio
-	preConsumedQuota := int(float64(preConsumedTokens) * ratio)
-
-	// 检查用户是否有无限额度
-	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	priceData, err := helper.ModelPriceHelper(c, relayInfo, preConsumedTokens, 0)
 	if err != nil {
-		return service.OpenAIErrorWrapperLocal(err, "check_unlimited_quota_failed", http.StatusInternalServerError)
+		return service.OpenAIErrorWrapperLocal(err, "model_price_error", http.StatusInternalServerError)
 	}
 
-	var userQuota int
-	if !isUnlimited {
-		userQuota, err = model.GetUserQuota(relayInfo.UserId, false)
-		if err != nil {
-			return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
+	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
+	}
+	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
+	if openaiErr != nil {
+		return openaiErr
+	}
+	defer func() {
+		if openaiErr != nil {
+			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
 		}
-		if userQuota < preConsumedQuota {
-			return service.OpenAIErrorWrapperLocal(errors.New(fmt.Sprintf("audio pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, preConsumedQuota)), "insufficient_user_quota", http.StatusBadRequest)
-		}
+	}()
+
+	err = helper.ModelMappedHelper(c, relayInfo)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "model_mapped_error", http.StatusInternalServerError)
 	}
 
-	// map model name
-	modelMapping := c.GetString("model_mapping")
-	if modelMapping != "" {
-		modelMap := make(map[string]string)
-		err := json.Unmarshal([]byte(modelMapping), &modelMap)
-		if err != nil {
-			return service.OpenAIErrorWrapper(err, "unmarshal_model_mapping_failed", http.StatusInternalServerError)
-		}
-		if modelMap[audioRequest.Model] != "" {
-			audioRequest.Model = modelMap[audioRequest.Model]
-		}
-	}
-	relayInfo.UpstreamModelName = audioRequest.Model
+	audioRequest.Model = relayInfo.UpstreamModelName
 
 	adaptor := GetAdaptor(relayInfo.ApiType)
 	if adaptor == nil {
@@ -144,12 +136,7 @@ func AudioHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		return openaiErr
 	}
 
-	if !isUnlimited {
-		postConsumeQuota(c, relayInfo, audioRequest.Model, usage.(*dto.Usage), ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, 0, false, "")
-	} else {
-		logContent := "（无限额度）"
-		postConsumeQuota(c, relayInfo, audioRequest.Model, usage.(*dto.Usage), ratio, 0, 0, modelRatio, groupRatio, 0, false, logContent)
-	}
+	postConsumeQuota(c, relayInfo, usage.(*dto.Usage), preConsumedQuota, userQuota, priceData, "")
 
 	return nil
 }

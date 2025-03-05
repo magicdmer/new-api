@@ -2,7 +2,6 @@ package controller
 
 import (
 	"github.com/gin-gonic/gin"
-	"one-api/common"
 	"one-api/model"
 	"one-api/setting"
 )
@@ -17,7 +16,7 @@ func GetPricing(c *gin.Context) {
 	}
 	var group string
 	if exists {
-		user, err := model.GetUserById(userId.(int), false)
+		user, err := model.GetUserCache(userId.(int))
 		if err == nil {
 			group = user.Group
 		}
@@ -40,7 +39,7 @@ func GetPricing(c *gin.Context) {
 }
 
 func ResetModelRatio(c *gin.Context) {
-	defaultStr := common.DefaultModelRatio2JSONString()
+	defaultStr := setting.DefaultModelRatio2JSONString()
 	err := model.UpdateOption("ModelRatio", defaultStr)
 	if err != nil {
 		c.JSON(200, gin.H{
@@ -49,7 +48,7 @@ func ResetModelRatio(c *gin.Context) {
 		})
 		return
 	}
-	err = common.UpdateModelRatioByJSONString(defaultStr)
+	err = setting.UpdateModelRatioByJSONString(defaultStr)
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,

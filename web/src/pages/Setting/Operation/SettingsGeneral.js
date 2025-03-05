@@ -21,6 +21,8 @@ export default function GeneralSettings(props) {
     DisplayInCurrencyEnabled: false,
     DisplayTokenStatEnabled: false,
     DefaultCollapseSidebar: false,
+    DemoSiteEnabled: false,
+    SelfUseModeEnabled: false,
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -183,6 +185,39 @@ export default function GeneralSettings(props) {
                     setInputs({
                       ...inputs,
                       DefaultCollapseSidebar: value,
+                    })
+                  }
+                />
+              </Col>
+            </Row>
+            <Row>
+              <Col span={8}>
+                <Form.Switch
+                  field={'DemoSiteEnabled'}
+                  label={t('演示站点模式')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      DemoSiteEnabled: value
+                    })
+                  }
+                />
+              </Col>
+              <Col span={8}>
+                <Form.Switch
+                  field={'SelfUseModeEnabled'}
+                  label={t('自用模式')}
+                  extraText={t('开启后不限制：必须设置模型倍率')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      SelfUseModeEnabled: value
                     })
                   }
                 />

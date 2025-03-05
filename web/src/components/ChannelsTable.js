@@ -15,7 +15,7 @@ import {
   getQuotaPerUnit,
   renderGroup,
   renderNumberWithPoint,
-  renderQuota, renderQuotaWithPrompt
+  renderQuota, renderQuotaWithPrompt, stringToColor
 } from '../helpers/render';
 import {
   Button, Divider,
@@ -44,7 +44,7 @@ function renderTimestamp(timestamp) {
 
 const ChannelsTable = () => {
   const { t } = useTranslation();
-  
+
   let type2label = undefined;
 
   const renderType = (type) => {
@@ -53,11 +53,11 @@ const ChannelsTable = () => {
       for (let i = 0; i < CHANNEL_OPTIONS.length; i++) {
         type2label[CHANNEL_OPTIONS[i].value] = CHANNEL_OPTIONS[i];
       }
-      type2label[0] = { value: 0, text: t('未知类型'), color: 'grey' };
+      type2label[0] = { value: 0, label: t('未知类型'), color: 'grey' };
     }
     return (
       <Tag size="large" color={type2label[type]?.color}>
-        {type2label[type]?.text}
+        {type2label[type]?.label}
       </Tag>
     );
   };
@@ -357,6 +357,13 @@ const ChannelsTable = () => {
       dataIndex: 'operate',
       render: (text, record, index) => {
         if (record.children === undefined) {
+          // 构建模型测试菜单
+          const modelMenuItems = record.models.split(',').map(model => ({
+            node: 'item',
+            name: model,
+            onClick: () => testChannel(record, model)
+          }));
+
           return (
             <div>
               <SplitButtonGroup
@@ -371,17 +378,15 @@ const ChannelsTable = () => {
                 >
                   {t('测试')}
                 </Button>
-                <Dropdown
-                  trigger="click"
-                  position="bottomRight"
-                  menu={record.test_models}
-                >
-                  <Button
-                    style={{ padding: '8px 4px' }}
-                    type="primary"
-                    icon={<IconTreeTriangleDown />}
-                  ></Button>
-                </Dropdown>
+                <Button
+                  style={{ padding: '8px 4px' }}
+                  type="primary"
+                  icon={<IconTreeTriangleDown />}
+                  onClick={() => {
+                    setCurrentTestChannel(record);
+                    setShowModelTestModal(true);
+                  }}
+                ></Button>
               </SplitButtonGroup>
               <Popconfirm
                 title={t('确定是否要删除此渠道？')}
@@ -515,6 +520,9 @@ const ChannelsTable = () => {
   const [enableTagMode, setEnableTagMode] = useState(false);
   const [showBatchSetTag, setShowBatchSetTag] = useState(false);
   const [batchSetTagValue, setBatchSetTagValue] = useState('');
+  const [showModelTestModal, setShowModelTestModal] = useState(false);
+  const [currentTestChannel, setCurrentTestChannel] = useState(null);
+  const [modelSearchKeyword, setModelSearchKeyword] = useState('');
 
 
   const removeRecord = (record) => {
@@ -545,21 +553,10 @@ const ChannelsTable = () => {
     let channelTags = {};
     for (let i = 0; i < channels.length; i++) {
       channels[i].key = '' + channels[i].id;
-      let test_models = [];
-      channels[i].models.split(',').forEach((item, index) => {
-        test_models.push({
-          node: 'item',
-          name: item,
-          onClick: () => {
-            testChannel(channels[i], item);
-          }
-        });
-      });
-      channels[i].test_models = test_models;
       if (!enableTagMode) {
         channelDates.push(channels[i]);
       } else {
-        let tag = channels[i].tag?channels[i].tag:"";
+        let tag = channels[i].tag ? channels[i].tag : "";
         // find from channelTags
         let tagIndex = channelTags[tag];
         let tagChannelDates = undefined;
@@ -798,13 +795,59 @@ const ChannelsTable = () => {
     setSearching(false);
   };
 
+  const updateChannelProperty = (channelId, updateFn) => {
+    // Create a new copy of channels array
+    const newChannels = [...channels];
+    let updated = false;
+
+    // Find and update the correct channel
+    newChannels.forEach(channel => {
+      if (channel.children !== undefined) {
+        // If this is a tag group, search in its children
+        channel.children.forEach(child => {
+          if (child.id === channelId) {
+            updateFn(child);
+            updated = true;
+          }
+        });
+      } else if (channel.id === channelId) {
+        // Direct channel match
+        updateFn(channel);
+        updated = true;
+      }
+    });
+
+    // Only update state if we actually modified a channel
+    if (updated) {
+      setChannels(newChannels);
+    }
+  };
+
   const testChannel = async (record, model) => {
     const res = await API.get(`/api/channel/test/${record.id}?model=${model}`);
     const { success, message, time } = res.data;
     if (success) {
-      record.response_time = time * 1000;
-      record.test_time = Date.now() / 1000;
+      // Also update the channels state to persist the change
+      updateChannelProperty(record.id, (channel) => {
+        channel.response_time = time * 1000;
+        channel.test_time = Date.now() / 1000;
+      });
+      
       showInfo(t('通道 ${name} 测试成功，耗时 ${time.toFixed(2)} 秒。').replace('${name}', record.name).replace('${time.toFixed(2)}', time.toFixed(2)));
+    } else {
+      showError(message);
+    }
+  };
+
+  const updateChannelBalance = async (record) => {
+    const res = await API.get(`/api/channel/update_balance/${record.id}/`);
+    const { success, message, balance } = res.data;
+    if (success) {
+      updateChannelProperty(record.id, (channel) => {
+        channel.balance = balance;
+        channel.balance_updated_time = Date.now() / 1000;
+      });
+      showInfo(t('通道 ${name} 余额更新成功！').replace('${name}', record.name));
     } else {
       showError(message);
     }
@@ -826,18 +869,6 @@ const ChannelsTable = () => {
     if (success) {
       showSuccess(t('已删除所有禁用渠道，共计 ${data} 个').replace('${data}', data));
       await refresh();
-    } else {
-      showError(message);
-    }
-  };
-
-  const updateChannelBalance = async (record) => {
-    const res = await API.get(`/api/channel/update_balance/${record.id}/`);
-    const { success, message, balance } = res.data;
-    if (success) {
-      record.balance = balance;
-      record.balance_updated_time = Date.now() / 1000;
-      showInfo(t('通道 ${name} 余额更新成功！').replace('${name}', record.name));
     } else {
       showError(message);
     }
@@ -1186,7 +1217,7 @@ const ChannelsTable = () => {
         </Space>
       </div>
       <div style={{ marginTop: 20 }}>
-      <Space>
+        <Space>
           <Typography.Text strong>{t('标签聚合模式')}</Typography.Text>
           <Switch
             checked={enableTagMode}
@@ -1199,14 +1230,14 @@ const ChannelsTable = () => {
             }}
           />
           <Button
-        disabled={!enableBatchDelete}
-        theme="light"
-        type="primary"
-        style={{ marginRight: 8 }}
-        onClick={() => setShowBatchSetTag(true)}
-      >
-        {t('批量设置标签')}
-      </Button>
+            disabled={!enableBatchDelete}
+            theme="light"
+            type="primary"
+            style={{ marginRight: 8 }}
+            onClick={() => setShowBatchSetTag(true)}
+          >
+            {t('批量设置标签')}
+          </Button>
         </Space>
 
       </div>
@@ -1258,6 +1289,77 @@ const ChannelsTable = () => {
           value={batchSetTagValue}
           onChange={(v) => setBatchSetTagValue(v)}
         />
+      </Modal>
+      
+      {/* 模型测试弹窗 */}
+      <Modal
+        title={t('选择模型进行测试')}
+        visible={showModelTestModal && currentTestChannel !== null}
+        onCancel={() => {
+          setShowModelTestModal(false);
+          setModelSearchKeyword('');
+        }}
+        footer={null}
+        maskClosable={true}
+        centered={true}
+        width={600}
+      >
+        <div style={{ maxHeight: '500px', overflowY: 'auto', padding: '10px' }}>
+          {currentTestChannel && (
+            <div>
+              <Typography.Title heading={6} style={{ marginBottom: '16px' }}>
+                {t('渠道')}: {currentTestChannel.name}
+              </Typography.Title>
+              
+              {/* 搜索框 */}
+              <Input
+                placeholder={t('搜索模型...')}
+                value={modelSearchKeyword}
+                onChange={(value) => setModelSearchKeyword(value)}
+                style={{ marginBottom: '16px' }}
+                showClear
+              />
+              
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', 
+                gap: '10px' 
+              }}>
+                {currentTestChannel.models.split(',')
+                  .filter(model => model.toLowerCase().includes(modelSearchKeyword.toLowerCase()))
+                  .map((model, index) => {
+
+                    return (
+                      <Button
+                        key={index}
+                        theme="light"
+                        type="tertiary"
+                        style={{ 
+                          height: 'auto',
+                          padding: '8px 12px',
+                          textAlign: 'center',
+                        }}
+                        onClick={() => {
+                          testChannel(currentTestChannel, model);
+                        }}
+                      >
+                        {model}
+                      </Button>
+                    );
+                  })}
+              </div>
+              
+              {/* 显示搜索结果数量 */}
+              {modelSearchKeyword && (
+                <Typography.Text type="secondary" style={{ marginTop: '16px', display: 'block' }}>
+                  {t('找到')} {currentTestChannel.models.split(',').filter(model => 
+                    model.toLowerCase().includes(modelSearchKeyword.toLowerCase())
+                  ).length} {t('个模型')}
+                </Typography.Text>
+              )}
+            </div>
+          )}
+        </div>
       </Modal>
     </>
   );

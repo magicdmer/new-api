@@ -373,7 +373,7 @@ const UsersTable = () => {
     if (searchKeyword === '') {
       await loadUsers(activePage, pageSize);
     } else {
-      await searchUsers(searchKeyword, searchGroup);
+      await searchUsers(activePage, pageSize, searchKeyword, searchGroup);
     }
   };
 

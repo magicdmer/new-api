@@ -17,6 +17,7 @@ import (
 	"one-api/relay"
 	relaycommon "one-api/relay/common"
 	"one-api/relay/constant"
+	"one-api/relay/helper"
 	"one-api/service"
 	"strconv"
 	"strings"
@@ -41,9 +42,21 @@ func testChannel(channel *model.Channel, testModel string) (err error, openAIErr
 	}
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+
+	requestPath := "/v1/chat/completions"
+
+	// 先判断是否为 Embedding 模型
+	if strings.Contains(strings.ToLower(testModel), "embedding") ||
+		strings.HasPrefix(testModel, "m3e") || // m3e 系列模型
+		strings.Contains(testModel, "bge-") || // bge 系列模型
+		strings.Contains(testModel, "embed") ||
+		channel.Type == common.ChannelTypeMokaAI { // 其他 embedding 模型
+		requestPath = "/v1/embeddings" // 修改请求路径
+	}
+
 	c.Request = &http.Request{
 		Method: "POST",
-		URL:    &url.URL{Path: "/v1/chat/completions"},
+		URL:    &url.URL{Path: requestPath}, // 使用动态路径
 		Body:   nil,
 		Header: make(http.Header),
 	}
@@ -55,22 +68,16 @@ func testChannel(channel *model.Channel, testModel string) (err error, openAIErr
 			if len(channel.GetModels()) > 0 {
 				testModel = channel.GetModels()[0]
 			} else {
-				testModel = "gpt-3.5-turbo"
-			}
-		}
-	} else {
-		modelMapping := *channel.ModelMapping
-		if modelMapping != "" && modelMapping != "{}" {
-			modelMap := make(map[string]string)
-			err := json.Unmarshal([]byte(modelMapping), &modelMap)
-			if err != nil {
-				return err, service.OpenAIErrorWrapperLocal(err, "unmarshal_model_mapping_failed", http.StatusInternalServerError)
-			}
-			if modelMap[testModel] != "" {
-				testModel = modelMap[testModel]
+				testModel = "gpt-4o-mini"
 			}
 		}
 	}
+
+	cache, err := model.GetUserCache(1)
+	if err != nil {
+		return err, nil
+	}
+	cache.WriteContext(c)
 
 	c.Request.Header.Set("Authorization", "Bearer "+channel.Key)
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -79,7 +86,14 @@ func testChannel(channel *model.Channel, testModel string) (err error, openAIErr
 
 	middleware.SetupContextForSelectedChannel(c, channel, testModel)
 
-	meta := relaycommon.GenRelayInfo(c)
+	info := relaycommon.GenRelayInfo(c)
+
+	err = helper.ModelMappedHelper(c, info)
+	if err != nil {
+		return err, nil
+	}
+	testModel = info.UpstreamModelName
+
 	apiType, _ := constant.ChannelType2APIType(channel.Type)
 	adaptor := relay.GetAdaptor(apiType)
 	if adaptor == nil {
@@ -87,12 +101,12 @@ func testChannel(channel *model.Channel, testModel string) (err error, openAIErr
 	}
 
 	request := buildTestRequest(testModel)
-	meta.UpstreamModelName = testModel
-	common.SysLog(fmt.Sprintf("testing channel %d with model %s", channel.Id, testModel))
+	info.OriginModelName = testModel
+	common.SysLog(fmt.Sprintf("testing channel %d with model %s , info %v ", channel.Id, testModel, info))
 
-	adaptor.Init(meta)
+	adaptor.Init(info)
 
-	convertedRequest, err := adaptor.ConvertRequest(c, meta, request)
+	convertedRequest, err := adaptor.ConvertRequest(c, info, request)
 	if err != nil {
 		return err, nil
 	}
@@ -102,7 +116,7 @@ func testChannel(channel *model.Channel, testModel string) (err error, openAIErr
 	}
 	requestBody := bytes.NewBuffer(jsonData)
 	c.Request.Body = io.NopCloser(requestBody)
-	resp, err := adaptor.DoRequest(c, meta, requestBody)
+	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return err, nil
 	}
@@ -114,7 +128,7 @@ func testChannel(channel *model.Channel, testModel string) (err error, openAIErr
 			return fmt.Errorf("status code %d: %s", httpResp.StatusCode, err.Error.Message), err
 		}
 	}
-	usageA, respErr := adaptor.DoResponse(c, httpResp, meta)
+	usageA, respErr := adaptor.DoResponse(c, httpResp, info)
 	if respErr != nil {
 		return fmt.Errorf("%s", respErr.Error.Message), respErr
 	}
@@ -127,26 +141,27 @@ func testChannel(channel *model.Channel, testModel string) (err error, openAIErr
 	if err != nil {
 		return err, nil
 	}
-	modelPrice, usePrice := common.GetModelPrice(testModel, false)
-	modelRatio := common.GetModelRatio(testModel)
-	completionRatio := common.GetCompletionRatio(testModel)
-	ratio := modelRatio
+	info.PromptTokens = usage.PromptTokens
+	priceData, err := helper.ModelPriceHelper(c, info, usage.PromptTokens, int(request.MaxTokens))
+	if err != nil {
+		return err, nil
+	}
 	quota := 0
-	if !usePrice {
-		quota = usage.PromptTokens + int(math.Round(float64(usage.CompletionTokens)*completionRatio))
-		quota = int(math.Round(float64(quota) * ratio))
-		if ratio != 0 && quota <= 0 {
+	if !priceData.UsePrice {
+		quota = usage.PromptTokens + int(math.Round(float64(usage.CompletionTokens)*priceData.CompletionRatio))
+		quota = int(math.Round(float64(quota) * priceData.ModelRatio))
+		if priceData.ModelRatio != 0 && quota <= 0 {
 			quota = 1
 		}
 	} else {
-		quota = int(modelPrice * common.QuotaPerUnit)
+		quota = int(priceData.ModelPrice * common.QuotaPerUnit)
 	}
 	tok := time.Now()
 	milliseconds := tok.Sub(tik).Milliseconds()
 	consumedTime := float64(milliseconds) / 1000.0
-	other := service.GenerateTextOtherInfo(c, meta, modelRatio, 1, completionRatio, modelPrice)
+	other := service.GenerateTextOtherInfo(c, info, priceData.ModelRatio, priceData.GroupRatio, priceData.CompletionRatio, priceData.ModelPrice)
 	model.RecordConsumeLog(c, 1, channel.Id, usage.PromptTokens, usage.CompletionTokens, testModel, "模型测试",
-		quota, "模型测试", 0, quota, int(consumedTime), false, "default", other)
+		quota, "模型测试", 0, quota, int(consumedTime), false, info.Group, other)
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
 	return nil, nil
 }
@@ -156,12 +171,21 @@ func buildTestRequest(model string) *dto.GeneralOpenAIRequest {
 		Model:  "", // this will be set later
 		Stream: false,
 	}
+
+	// 先判断是否为 Embedding 模型
+	if strings.Contains(strings.ToLower(model), "embedding") ||
+		strings.HasPrefix(model, "m3e") || // m3e 系列模型
+		strings.Contains(model, "bge-") || // bge 系列模型
+		model == "text-embedding-v1" { // 其他 embedding 模型
+		// Embedding 请求
+		testRequest.Input = []string{"hello world"}
+		return testRequest
+	}
+	// 并非Embedding 模型
 	if strings.HasPrefix(model, "o1") || strings.HasPrefix(model, "o3") {
 		testRequest.MaxCompletionTokens = 10
-	} else if strings.HasPrefix(model, "gemini-2.0-flash-thinking") {
-		testRequest.MaxTokens = 10
 	} else {
-		testRequest.MaxTokens = 1
+		testRequest.MaxTokens = 10
 	}
 	content, _ := json.Marshal("hi")
 	testMessage := dto.Message{
@@ -217,9 +241,7 @@ var testAllChannelsLock sync.Mutex
 var testAllChannelsRunning bool = false
 
 func testAllChannels(notify bool) error {
-	if common.RootUserEmail == "" {
-		common.RootUserEmail = model.GetRootUserEmail()
-	}
+
 	testAllChannelsLock.Lock()
 	if testAllChannelsRunning {
 		testAllChannelsLock.Unlock()
@@ -274,10 +296,7 @@ func testAllChannels(notify bool) error {
 		testAllChannelsRunning = false
 		testAllChannelsLock.Unlock()
 		if notify {
-			err := common.SendEmail("通道测试完成", common.RootUserEmail, "通道测试完成，如果没有收到禁用通知，说明所有通道都正常")
-			if err != nil {
-				common.SysError(fmt.Sprintf("failed to send email: %s", err.Error()))
-			}
+			service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "所有通道测试已完成")
 		}
 	})
 	return nil

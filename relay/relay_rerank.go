@@ -8,10 +8,9 @@ import (
 	"net/http"
 	"one-api/common"
 	"one-api/dto"
-	"one-api/model"
 	relaycommon "one-api/relay/common"
+	"one-api/relay/helper"
 	"one-api/service"
-	"one-api/setting"
 )
 
 func getRerankPromptToken(rerankRequest dto.RerankRequest) int {
@@ -41,54 +40,30 @@ func RerankHelper(c *gin.Context, relayMode int) (openaiErr *dto.OpenAIErrorWith
 		return service.OpenAIErrorWrapperLocal(fmt.Errorf("documents is empty"), "invalid_documents", http.StatusBadRequest)
 	}
 
-	// map model name
-	modelMapping := c.GetString("model_mapping")
-	if modelMapping != "" && modelMapping != "{}" {
-		modelMap := make(map[string]string)
-		err := json.Unmarshal([]byte(modelMapping), &modelMap)
-		if err != nil {
-			return service.OpenAIErrorWrapperLocal(err, "unmarshal_model_mapping_failed", http.StatusInternalServerError)
-		}
-		if modelMap[rerankRequest.Model] != "" {
-			rerankRequest.Model = modelMap[rerankRequest.Model]
-		}
+	err = helper.ModelMappedHelper(c, relayInfo)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "model_mapped_error", http.StatusInternalServerError)
 	}
 
-	relayInfo.UpstreamModelName = rerankRequest.Model
-	modelPrice, success := common.GetModelPrice(rerankRequest.Model, false)
-	groupRatio := setting.GetGroupRatio(relayInfo.Group)
-
-	var preConsumedQuota int
-	var ratio float64
-	var modelRatio float64
+	rerankRequest.Model = relayInfo.UpstreamModelName
 
 	promptToken := getRerankPromptToken(*rerankRequest)
-	if !success {
-		preConsumedTokens := promptToken
-		modelRatio = common.GetModelRatio(rerankRequest.Model)
-		ratio = modelRatio * groupRatio
-		preConsumedQuota = int(float64(preConsumedTokens) * ratio)
-	} else {
-		preConsumedQuota = int(modelPrice * common.QuotaPerUnit * groupRatio)
-	}
 	relayInfo.PromptTokens = promptToken
 
-	// 检查用户是否有无限额度
-	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	priceData, err := helper.ModelPriceHelper(c, relayInfo, promptToken, 0)
 	if err != nil {
-		return service.OpenAIErrorWrapperLocal(err, "check_unlimited_quota_failed", http.StatusInternalServerError)
+		return service.OpenAIErrorWrapperLocal(err, "model_price_error", http.StatusInternalServerError)
 	}
-
-	var userQuota int
-	if !isUnlimited {
-		userQuota, err = model.GetUserQuota(relayInfo.UserId, false)
-		if err != nil {
-			return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
-		}
-		if userQuota < preConsumedQuota {
-			return service.OpenAIErrorWrapperLocal(fmt.Errorf("rerank pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, preConsumedQuota), "insufficient_user_quota", http.StatusBadRequest)
-		}
+	// pre-consume quota 预消耗配额
+	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
+	if openaiErr != nil {
+		return openaiErr
 	}
+	defer func() {
+		if openaiErr != nil {
+			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
+		}
+	}()
 
 	adaptor := GetAdaptor(relayInfo.ApiType)
 	if adaptor == nil {
@@ -128,12 +103,6 @@ func RerankHelper(c *gin.Context, relayMode int) (openaiErr *dto.OpenAIErrorWith
 		service.ResetStatusCode(openaiErr, statusCodeMappingStr)
 		return openaiErr
 	}
-
-	if !isUnlimited {
-		postConsumeQuota(c, relayInfo, rerankRequest.Model, usage.(*dto.Usage), ratio, preConsumedQuota, userQuota, modelRatio, groupRatio, modelPrice, success, "")
-	} else {
-		logContent := "（无限额度）"
-		postConsumeQuota(c, relayInfo, rerankRequest.Model, usage.(*dto.Usage), ratio, 0, 0, modelRatio, groupRatio, modelPrice, success, logContent)
-	}
+	postConsumeQuota(c, relayInfo, usage.(*dto.Usage), preConsumedQuota, userQuota, priceData, "")
 	return nil
 }
