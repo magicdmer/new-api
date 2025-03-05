@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"one-api/common"
@@ -16,6 +15,8 @@ import (
 	"one-api/service"
 	"one-api/setting"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 func getAndValidImageRequest(c *gin.Context, info *relaycommon.RelayInfo) (*dto.ImageRequest, error) {
@@ -121,7 +122,12 @@ func ImageHelper(c *gin.Context) *dto.OpenAIErrorWithStatusCode {
 	priceData.ModelPrice *= sizeRatio * qualityRatio * float64(imageRequest.N)
 	quota := int(priceData.ModelPrice * priceData.GroupRatio * common.QuotaPerUnit)
 
-	if userQuota-quota < 0 {
+	isUnlimitedQuota, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(fmt.Errorf("failed to check unlimited quota: %v", err), "check_unlimited_quota_failed", http.StatusInternalServerError)
+	}
+
+	if !isUnlimitedQuota && userQuota-quota < 0 {
 		return service.OpenAIErrorWrapperLocal(fmt.Errorf("image pre-consumed quota failed, user quota: %s, need quota: %s", common.FormatQuota(userQuota), common.FormatQuota(quota)), "insufficient_user_quota", http.StatusForbidden)
 	}
 
