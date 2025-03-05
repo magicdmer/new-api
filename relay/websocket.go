@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"one-api/common"
 	"one-api/dto"
-	"one-api/model"
 	relaycommon "one-api/relay/common"
 	"one-api/service"
 	"one-api/setting"
@@ -74,22 +73,17 @@ func WssHelper(c *gin.Context, ws *websocket.Conn) (openaiErr *dto.OpenAIErrorWi
 		relayInfo.UsePrice = true
 	}
 
-	// 检查用户是否有无限额度
-	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
-	if err != nil {
-		return service.OpenAIErrorWrapperLocal(err, "check_unlimited_quota_failed", http.StatusInternalServerError)
+	// pre-consume quota 预消耗配额
+	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, preConsumedQuota, relayInfo)
+	if openaiErr != nil {
+		return openaiErr
 	}
 
-	var userQuota int
-	if !isUnlimited {
-		userQuota, err = model.GetUserQuota(relayInfo.UserId, false)
-		if err != nil {
-			return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
+	defer func() {
+		if openaiErr != nil {
+			returnPreConsumedQuota(c, relayInfo, userQuota, preConsumedQuota)
 		}
-		if userQuota < preConsumedQuota {
-			return service.OpenAIErrorWrapperLocal(fmt.Errorf("websocket pre-consumed quota failed, user quota: %d, need quota: %d", userQuota, preConsumedQuota), "insufficient_user_quota", http.StatusBadRequest)
-		}
-	}
+	}()
 
 	adaptor := GetAdaptor(relayInfo.ApiType)
 	if adaptor == nil {
@@ -117,15 +111,7 @@ func WssHelper(c *gin.Context, ws *websocket.Conn) (openaiErr *dto.OpenAIErrorWi
 		service.ResetStatusCode(openaiErr, statusCodeMappingStr)
 		return openaiErr
 	}
-
-	if !isUnlimited {
-		service.PostWssConsumeQuota(c, relayInfo, relayInfo.UpstreamModelName, usage.(*dto.RealtimeUsage), preConsumedQuota,
-			userQuota, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, "")
-	} else {
-		logContent := "（无限额度）"
-		service.PostWssConsumeQuota(c, relayInfo, relayInfo.UpstreamModelName, usage.(*dto.RealtimeUsage), 0,
-			0, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, logContent)
-	}
-
+	service.PostWssConsumeQuota(c, relayInfo, relayInfo.UpstreamModelName, usage.(*dto.RealtimeUsage), preConsumedQuota,
+		userQuota, modelRatio, groupRatio, modelPrice, getModelPriceSuccess, "")
 	return nil
 }

@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"fmt"
-	"github.com/bytedance/gopkg/util/gopool"
 	"math"
 	"one-api/common"
 	constant2 "one-api/constant"
@@ -15,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )
 
@@ -61,12 +61,11 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	}
 
 	// 检查用户是否有无限额度
-	user, err := model.GetUserById(relayInfo.UserId, false)
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
 	if err != nil {
 		return err
 	}
-
-	if user.UnlimitedQuota {
+	if isUnlimited {
 		return nil
 	}
 
@@ -162,6 +161,13 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
 	}
 
+	// 检查是否是无限额度用户
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err == nil && isUnlimited {
+		logContent += "（无限额度）"
+		quota = 0 // 无限额度用户不扣除配额
+	}
+
 	// record all the consume log even if quota is 0
 	if totalTokens == 0 {
 		// in this case, must be some error happened
@@ -229,6 +235,13 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
 	}
 
+	// 检查是否是无限额度用户
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err == nil && isUnlimited {
+		logContent += "（无限额度）"
+		quota = 0 // 无限额度用户不扣除配额
+	}
+
 	// record all the consume log even if quota is 0
 	if totalTokens == 0 {
 		// in this case, must be some error happened
@@ -283,6 +296,16 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 }
 
 func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (err error) {
+	// 检查用户是否有无限额度
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err != nil {
+		return err
+	}
+
+	// 无限额度用户不需要扣除额度
+	if isUnlimited {
+		return nil
+	}
 
 	if quota > 0 {
 		err = model.DecreaseUserQuota(relayInfo.UserId, quota)
