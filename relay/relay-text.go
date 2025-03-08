@@ -110,6 +110,7 @@ func TextHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 	if err != nil {
 		return service.OpenAIErrorWrapperLocal(err, "model_price_error", http.StatusInternalServerError)
 	}
+
 	// pre-consume quota 预消耗配额
 	preConsumedQuota, userQuota, openaiErr := preConsumeQuota(c, priceData.ShouldPreConsumedQuota, relayInfo)
 	if openaiErr != nil {
@@ -314,34 +315,38 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 			CompletionTokens: 0,
 			TotalTokens:      relayInfo.PromptTokens,
 		}
-		extraContent += "  ，（可能是请求出错）"
+		extraContent += "（可能是请求出错）"
 	}
 	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
 	promptTokens := usage.PromptTokens
+	cacheTokens := usage.PromptTokensDetails.CachedTokens
 	completionTokens := usage.CompletionTokens
 	modelName := relayInfo.OriginModelName
 
 	tokenName := ctx.GetString("token_name")
-	completionRatio := setting.GetCompletionRatio(modelName)
+	completionRatio := priceData.CompletionRatio
+	cacheRatio := priceData.CacheRatio
 	ratio := priceData.ModelRatio * priceData.GroupRatio
 	modelRatio := priceData.ModelRatio
 	groupRatio := priceData.GroupRatio
 	modelPrice := priceData.ModelPrice
-	usePrice := priceData.UsePrice
 
-	quota := 0
+	quotaCalculate := 0.0
 	if !priceData.UsePrice {
-		quota = promptTokens + int(math.Round(float64(completionTokens)*completionRatio))
-		quota = int(math.Round(float64(quota) * ratio))
-		if ratio != 0 && quota <= 0 {
-			quota = 1
+		quotaCalculate = float64(promptTokens-cacheTokens) + float64(cacheTokens)*cacheRatio
+		quotaCalculate += float64(completionTokens) * completionRatio
+		quotaCalculate = quotaCalculate * ratio
+		if ratio != 0 && quotaCalculate <= 0 {
+			quotaCalculate = 1
 		}
 	} else {
-		quota = int(modelPrice * common.QuotaPerUnit * groupRatio)
+		quotaCalculate = modelPrice * common.QuotaPerUnit * groupRatio
 	}
+	quota := int(quotaCalculate)
 	totalTokens := promptTokens + completionTokens
+
 	var logContent string
-	if !usePrice {
+	if !priceData.UsePrice {
 		logContent = fmt.Sprintf("模型倍率 %.2f，补全倍率 %.2f，分组倍率 %.2f", modelRatio, completionRatio, groupRatio)
 	} else {
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
@@ -389,7 +394,7 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	if extraContent != "" {
 		logContent += ", " + extraContent
 	}
-	other := service.GenerateTextOtherInfo(ctx, relayInfo, modelRatio, groupRatio, completionRatio, modelPrice)
+	other := service.GenerateTextOtherInfo(ctx, relayInfo, modelRatio, groupRatio, completionRatio, cacheTokens, cacheRatio, modelPrice)
 	model.RecordConsumeLog(ctx, relayInfo.UserId, relayInfo.ChannelId, promptTokens, completionTokens, logModel,
 		tokenName, quota, logContent, relayInfo.TokenId, userQuota, int(useTimeSeconds), relayInfo.IsStream, relayInfo.Group, other)
 
