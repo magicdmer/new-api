@@ -1,21 +1,20 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Button, Col, Form, Row, Spin, Tag } from '@douyinfe/semi-ui';
+import { Button, Col, Form, Row, Spin } from '@douyinfe/semi-ui';
 import {
   compareObjects,
   API,
   showError,
   showSuccess,
-  showWarning,
+  showWarning, verifyJSON
 } from '../../../helpers';
 import { useTranslation } from 'react-i18next';
 
-export default function SettingsSensitiveWords(props) {
+export default function SettingGlobalModel(props) {
   const { t } = useTranslation();
+
   const [loading, setLoading] = useState(false);
   const [inputs, setInputs] = useState({
-    CheckSensitiveEnabled: false,
-    CheckSensitiveOnPromptEnabled: false,
-    SensitiveWords: '',
+    'global.pass_through_request_enabled': false,
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -65,6 +64,7 @@ export default function SettingsSensitiveWords(props) {
     setInputsRow(structuredClone(currentInputs));
     refForm.current.setValues(currentInputs);
   }, [props.options]);
+
   return (
     <>
       <Spin spinning={loading}>
@@ -73,60 +73,21 @@ export default function SettingsSensitiveWords(props) {
           getFormApi={(formAPI) => (refForm.current = formAPI)}
           style={{ marginBottom: 15 }}
         >
-          <Form.Section text={t('屏蔽词过滤设置')}>
-            <Row gutter={16}>
-              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
-                <Form.Switch
-                  field={'CheckSensitiveEnabled'}
-                  label={t('启用屏蔽词过滤功能')}
-                  size='default'
-                  checkedText='｜'
-                  uncheckedText='〇'
-                  onChange={(value) => {
-                    setInputs({
-                      ...inputs,
-                      CheckSensitiveEnabled: value,
-                    });
-                  }}
-                />
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
-                <Form.Switch
-                  field={'CheckSensitiveOnPromptEnabled'}
-                  label={t('启用 Prompt 检查')}
-                  size='default'
-                  checkedText='｜'
-                  uncheckedText='〇'
-                  onChange={(value) =>
-                    setInputs({
-                      ...inputs,
-                      CheckSensitiveOnPromptEnabled: value,
-                    })
-                  }
-                />
-              </Col>
-            </Row>
+          <Form.Section text={t('全局设置')}>
             <Row>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
-                <Form.TextArea
-                  label={t('屏蔽词列表')}
-                  extraText={t('一行一个屏蔽词，不需要符号分割')}
-                  placeholder={t('一行一个屏蔽词，不需要符号分割')}
-                  field={'SensitiveWords'}
-                  onChange={(value) =>
-                    setInputs({
-                      ...inputs,
-                      SensitiveWords: value,
-                    })
-                  }
-                  style={{ fontFamily: 'JetBrains Mono, Consolas' }}
-                  autosize={{ minRows: 6, maxRows: 12 }}
+                <Form.Switch
+                  label={t('启用请求透传')}
+                  field={'global.pass_through_request_enabled'}
+                  onChange={(value) => setInputs({ ...inputs, 'global.pass_through_request_enabled': value })}
+                  extraText={'开启后，所有请求将直接透传给上游，不会进行任何处理（重定向和渠道适配也将失效）,请谨慎开启'}
                 />
               </Col>
             </Row>
+
             <Row>
               <Button size='default' onClick={onSubmit}>
-                {t('保存屏蔽词过滤设置')}
+                {t('保存')}
               </Button>
             </Row>
           </Form.Section>
