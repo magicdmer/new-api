@@ -78,6 +78,16 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
+
+	// 检查用户是否有无限额度
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err != nil {
+		return err
+	}
+	if isUnlimited {
+		return nil
+	}
+
 	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 	if err != nil {
 		return err
@@ -171,6 +181,13 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
 	}
 
+	// 检查是否是无限额度用户
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err == nil && isUnlimited {
+		logContent += "（无限额度）"
+		quota = 0 // 无限额度用户不扣除配额
+	}
+
 	// record all the consume log even if quota is 0
 	if totalTokens == 0 {
 		// in this case, must be some error happened
@@ -240,6 +257,13 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
 	}
 
+	// 检查是否是无限额度用户
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err == nil && isUnlimited {
+		logContent += "（无限额度）"
+		quota = 0 // 无限额度用户不扣除配额
+	}
+
 	// record all the consume log even if quota is 0
 	if totalTokens == 0 {
 		// in this case, must be some error happened
@@ -295,6 +319,16 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 }
 
 func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (err error) {
+	// 检查用户是否有无限额度
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err != nil {
+		return err
+	}
+
+	// 无限额度用户不需要扣除额度
+	if isUnlimited {
+		return nil
+	}
 
 	if quota > 0 {
 		err = model.DecreaseUserQuota(relayInfo.UserId, quota)

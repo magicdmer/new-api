@@ -243,6 +243,17 @@ func checkRequestSensitive(textRequest *dto.GeneralOpenAIRequest, info *relaycom
 
 // 预扣费并返回用户剩余配额
 func preConsumeQuota(c *gin.Context, preConsumedQuota int, relayInfo *relaycommon.RelayInfo) (int, int, *dto.OpenAIErrorWithStatusCode) {
+	// 首先检查用户是否是无限额度
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err != nil {
+		return 0, 0, service.OpenAIErrorWrapperLocal(err, "check_unlimited_quota_failed", http.StatusInternalServerError)
+	}
+
+	if isUnlimited {
+		common.LogInfo(c, fmt.Sprintf("user %d has unlimited quota, no need to pre-consume", relayInfo.UserId))
+		return 0, 0, nil
+	}
+
 	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
 	if err != nil {
 		return 0, 0, service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
@@ -358,6 +369,13 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 		logContent = fmt.Sprintf("模型倍率 %.2f，补全倍率 %.2f，分组倍率 %.2f", modelRatio, completionRatio, groupRatio)
 	} else {
 		logContent = fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", modelPrice, groupRatio)
+	}
+
+	// 检查是否是无限额度用户
+	isUnlimited, err := model.IsUnlimitedQuota(relayInfo.UserId)
+	if err == nil && isUnlimited {
+		logContent += "（无限额度）"
+		quota = 0 // 无限额度用户不扣除配额
 	}
 
 	// record all the consume log even if quota is 0
