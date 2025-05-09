@@ -847,6 +847,15 @@ func (user *User) FillUserByLinuxDOId() error {
 	return err
 }
 
+func RootUserExists() bool {
+	var user User
+	err := DB.Where("role = ?", common.RoleRootUser).First(&user).Error
+	if err != nil {
+		return false
+	}
+	return true
+}
+
 func (user *User) SetUnlimitedQuota(unlimited bool) {
 	user.UnlimitedQuota = unlimited
 }
