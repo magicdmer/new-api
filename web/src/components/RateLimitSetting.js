@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Spin, Tabs } from '@douyinfe/semi-ui';
 
-
 import { API, showError, showSuccess } from '../helpers';
 import SettingsChats from '../pages/Setting/Operation/SettingsChats.js';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +13,7 @@ const RateLimitSetting = () => {
     ModelRequestRateLimitCount: 0,
     ModelRequestRateLimitSuccessCount: 1000,
     ModelRequestRateLimitDurationMinutes: 1,
+    ModelRequestRateLimitGroup: '',
   });
 
   let [loading, setLoading] = useState(false);
@@ -24,12 +24,14 @@ const RateLimitSetting = () => {
     if (success) {
       let newInputs = {};
       data.forEach((item) => {
-        if (
-          item.key.endsWith('Enabled')
-        ) {
-          newInputs[item.key] = item.value === 'true' ? true : false;
-        } else {
-          newInputs[item.key] = item.value;
+      if (item.key === 'ModelRequestRateLimitGroup') {
+        item.value = JSON.stringify(JSON.parse(item.value), null, 2);
+      }
+
+      if (item.key.endsWith('Enabled')) {
+        newInputs[item.key] = item.value === 'true' ? true : false;
+      } else {
+        newInputs[item.key] = item.value;
         }
       });
 

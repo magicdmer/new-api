@@ -595,7 +595,14 @@ func UpdateSelf(c *gin.Context) {
 		user.Password = "" // rollback to what it should be
 		cleanUser.Password = ""
 	}
-	updatePassword := user.Password != ""
+	updatePassword, err := checkUpdatePassword(user.OriginalPassword, user.Password, cleanUser.Id)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
 	if err := cleanUser.Update(updatePassword); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -608,6 +615,23 @@ func UpdateSelf(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
+	return
+}
+
+func checkUpdatePassword(originalPassword string, newPassword string, userId int) (updatePassword bool, err error) {
+	var currentUser *model.User
+	currentUser, err = model.GetUserById(userId, true)
+	if err != nil {
+		return
+	}
+	if !common.ValidatePasswordAndHash(originalPassword, currentUser.Password) {
+		err = fmt.Errorf("原密码错误")
+		return
+	}
+	if newPassword == "" {
+		return
+	}
+	updatePassword = true
 	return
 }
 
@@ -908,11 +932,12 @@ func TopUp(c *gin.Context) {
 }
 
 type UpdateUserSettingRequest struct {
-	QuotaWarningType      string  `json:"notify_type"`
-	QuotaWarningThreshold float64 `json:"quota_warning_threshold"`
-	WebhookUrl            string  `json:"webhook_url,omitempty"`
-	WebhookSecret         string  `json:"webhook_secret,omitempty"`
-	NotificationEmail     string  `json:"notification_email,omitempty"`
+	QuotaWarningType           string  `json:"notify_type"`
+	QuotaWarningThreshold      float64 `json:"quota_warning_threshold"`
+	WebhookUrl                 string  `json:"webhook_url,omitempty"`
+	WebhookSecret              string  `json:"webhook_secret,omitempty"`
+	NotificationEmail          string  `json:"notification_email,omitempty"`
+	AcceptUnsetModelRatioModel bool    `json:"accept_unset_model_ratio_model"`
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -988,6 +1013,7 @@ func UpdateUserSetting(c *gin.Context) {
 	settings := map[string]interface{}{
 		constant.UserSettingNotifyType:            req.QuotaWarningType,
 		constant.UserSettingQuotaWarningThreshold: req.QuotaWarningThreshold,
+		"accept_unset_model_ratio_model":          req.AcceptUnsetModelRatioModel,
 	}
 
 	// 如果是webhook类型,添加webhook相关设置

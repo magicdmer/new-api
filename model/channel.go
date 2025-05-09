@@ -36,6 +36,7 @@ type Channel struct {
 	OtherInfo         string  `json:"other_info"`
 	Tag               *string `json:"tag" gorm:"index"`
 	Setting           *string `json:"setting" gorm:"type:text"`
+	ParamOverride     *string `json:"param_override" gorm:"type:text"`
 }
 
 func (channel *Channel) GetModels() []string {
@@ -118,8 +119,13 @@ func SearchChannels(keyword string, group string, model string, idSort bool) ([]
 
 	// 如果是 PostgreSQL，使用双引号
 	if common.UsingPostgreSQL {
-		keyCol = `"key"`
 		modelsCol = `"models"`
+	}
+
+	baseURLCol := "`base_url`"
+	// 如果是 PostgreSQL，使用双引号
+	if common.UsingPostgreSQL {
+		baseURLCol = `"base_url"`
 	}
 
 	order := "priority desc"
@@ -141,11 +147,11 @@ func SearchChannels(keyword string, group string, model string, idSort bool) ([]
 			// sqlite, PostgreSQL
 			groupCondition = `(',' || ` + groupCol + ` || ',') LIKE ?`
 		}
-		whereClause = "(id = ? OR name LIKE ? OR " + keyCol + " = ?) AND " + modelsCol + ` LIKE ? AND ` + groupCondition
-		args = append(args, common.String2Int(keyword), "%"+keyword+"%", keyword, "%"+model+"%", "%,"+group+",%")
+		whereClause = "(id = ? OR name LIKE ? OR " + keyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + ` LIKE ? AND ` + groupCondition
+		args = append(args, common.String2Int(keyword), "%"+keyword+"%", keyword, "%"+keyword+"%", "%"+model+"%", "%,"+group+",%")
 	} else {
-		whereClause = "(id = ? OR name LIKE ? OR " + keyCol + " = ?) AND " + modelsCol + " LIKE ?"
-		args = append(args, common.String2Int(keyword), "%"+keyword+"%", keyword, "%"+model+"%")
+		whereClause = "(id = ? OR name LIKE ? OR " + keyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
+		args = append(args, common.String2Int(keyword), "%"+keyword+"%", keyword, "%"+keyword+"%", "%"+model+"%")
 	}
 
 	// 执行查询
@@ -449,6 +455,12 @@ func SearchTags(keyword string, group string, model string, idSort bool) ([]*str
 		modelsCol = `"models"`
 	}
 
+	baseURLCol := "`base_url`"
+	// 如果是 PostgreSQL，使用双引号
+	if common.UsingPostgreSQL {
+		baseURLCol = `"base_url"`
+	}
+
 	order := "priority desc"
 	if idSort {
 		order = "id desc"
@@ -468,11 +480,11 @@ func SearchTags(keyword string, group string, model string, idSort bool) ([]*str
 			// sqlite, PostgreSQL
 			groupCondition = `(',' || ` + groupCol + ` || ',') LIKE ?`
 		}
-		whereClause = "(id = ? OR name LIKE ? OR " + keyCol + " = ?) AND " + modelsCol + ` LIKE ? AND ` + groupCondition
-		args = append(args, common.String2Int(keyword), "%"+keyword+"%", keyword, "%"+model+"%", "%,"+group+",%")
+		whereClause = "(id = ? OR name LIKE ? OR " + keyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + ` LIKE ? AND ` + groupCondition
+		args = append(args, common.String2Int(keyword), "%"+keyword+"%", keyword, "%"+keyword+"%", "%"+model+"%", "%,"+group+",%")
 	} else {
-		whereClause = "(id = ? OR name LIKE ? OR " + keyCol + " = ?) AND " + modelsCol + " LIKE ?"
-		args = append(args, common.String2Int(keyword), "%"+keyword+"%", keyword, "%"+model+"%")
+		whereClause = "(id = ? OR name LIKE ? OR " + keyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
+		args = append(args, common.String2Int(keyword), "%"+keyword+"%", keyword, "%"+keyword+"%", "%"+model+"%")
 	}
 
 	subQuery := baseQuery.Where(whereClause, args...).
@@ -509,6 +521,17 @@ func (channel *Channel) SetSetting(setting map[string]interface{}) {
 		return
 	}
 	channel.Setting = common.GetPointer[string](string(settingBytes))
+}
+
+func (channel *Channel) GetParamOverride() map[string]interface{} {
+	paramOverride := make(map[string]interface{})
+	if channel.ParamOverride != nil && *channel.ParamOverride != "" {
+		err := json.Unmarshal([]byte(*channel.ParamOverride), &paramOverride)
+		if err != nil {
+			common.SysError("failed to unmarshal param override: " + err.Error())
+		}
+	}
+	return paramOverride
 }
 
 func GetChannelsByIds(ids []int) ([]*Channel, error) {

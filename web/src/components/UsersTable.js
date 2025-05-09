@@ -167,7 +167,11 @@ const UsersTable = () => {
                   manageUser(record.id, 'demote', record);
                 }}
               >
-                <Button theme='light' type='secondary' style={{ marginRight: 1 }}>
+                <Button
+                  theme='light'
+                  type='secondary'
+                  style={{ marginRight: 1 }}
+                >
                   {t('降级')}
                 </Button>
               </Popconfirm>
@@ -258,7 +262,7 @@ const UsersTable = () => {
       users[i].key = users[i].id;
     }
     setUsers(users);
-  }
+  };
 
   const loadUsers = async (startIdx, pageSize) => {
     const res = await API.get(`/api/user/?p=${startIdx}&page_size=${pageSize}`);
@@ -273,7 +277,6 @@ const UsersTable = () => {
     }
     setLoading(false);
   };
-
 
   useEffect(() => {
     loadUsers(0, pageSize)
@@ -324,22 +327,29 @@ const UsersTable = () => {
     }
   };
 
-  const searchUsers = async (startIdx, pageSize, searchKeyword, searchGroup) => {
+  const searchUsers = async (
+    startIdx,
+    pageSize,
+    searchKeyword,
+    searchGroup,
+  ) => {
     if (searchKeyword === '' && searchGroup === '') {
-        // if keyword is blank, load files instead.
-        await loadUsers(startIdx, pageSize);
-        return;
+      // if keyword is blank, load files instead.
+      await loadUsers(startIdx, pageSize);
+      return;
     }
     setSearching(true);
-    const res = await API.get(`/api/user/search?keyword=${searchKeyword}&group=${searchGroup}&p=${startIdx}&page_size=${pageSize}`);
+    const res = await API.get(
+      `/api/user/search?keyword=${searchKeyword}&group=${searchGroup}&p=${startIdx}&page_size=${pageSize}`,
+    );
     const { success, message, data } = res.data;
     if (success) {
-        const newPageData = data.items;
-        setActivePage(data.page);
-        setUserCount(data.total);
-        setUserFormat(newPageData);
+      const newPageData = data.items;
+      setActivePage(data.page);
+      setUserCount(data.total);
+      setUserFormat(newPageData);
     } else {
-        showError(message);
+      showError(message);
     }
     setSearching(false);
   };
@@ -351,9 +361,9 @@ const UsersTable = () => {
   const handlePageChange = (page) => {
     setActivePage(page);
     if (searchKeyword === '' && searchGroup === '') {
-        loadUsers(page, pageSize).then();
+      loadUsers(page, pageSize).then();
     } else {
-        searchUsers(page, pageSize, searchKeyword, searchGroup).then();
+      searchUsers(page, pageSize, searchKeyword, searchGroup).then();
     }
   };
 
@@ -369,7 +379,7 @@ const UsersTable = () => {
   };
 
   const refresh = async () => {
-    setActivePage(1)
+    setActivePage(1);
     if (searchKeyword === '') {
       await loadUsers(activePage, pageSize);
     } else {
@@ -428,7 +438,9 @@ const UsersTable = () => {
       >
         <div style={{ display: 'flex' }}>
           <Space>
-            <Tooltip content={t('支持搜索用户的 ID、用户名、显示名称和邮箱地址')}>
+            <Tooltip
+              content={t('支持搜索用户的 ID、用户名、显示名称和邮箱地址')}
+            >
               <Form.Input
                 label={t('搜索关键字')}
                 icon='search'
@@ -440,7 +452,7 @@ const UsersTable = () => {
                 onChange={(value) => handleKeywordChange(value)}
               />
             </Tooltip>
-            
+
             <Form.Select
               field='group'
               label={t('分组')}
@@ -479,7 +491,7 @@ const UsersTable = () => {
             t('第 {{start}} - {{end}} 条，共 {{total}} 条', {
               start: page.currentStart,
               end: page.currentEnd,
-              total: users.length
+              total: users.length,
             }),
           currentPage: activePage,
           pageSize: pageSize,

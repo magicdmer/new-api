@@ -44,7 +44,10 @@ export function renderGroup(group) {
             if (await copy(group)) {
               showSuccess(i18next.t('已复制：') + group);
             } else {
-              Modal.error({ title: t('无法复制到剪贴板，请手动复制'), content: group });
+              Modal.error({
+                title: t('无法复制到剪贴板，请手动复制'),
+                content: group,
+              });
             }
           }}
         >
@@ -64,28 +67,37 @@ export function renderRatio(ratio) {
   } else if (ratio > 1) {
     color = 'blue';
   }
-  return <Tag color={color}>{ratio}x {i18next.t('倍率')}</Tag>;
+  return (
+    <Tag color={color}>
+      {ratio}x {i18next.t('倍率')}
+    </Tag>
+  );
 }
 
-const measureTextWidth = (text, style = {
-  fontSize: '14px',
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-}, containerWidth) => {
+const measureTextWidth = (
+  text,
+  style = {
+    fontSize: '14px',
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  },
+  containerWidth,
+) => {
   const span = document.createElement('span');
-  
+
   span.style.visibility = 'hidden';
   span.style.position = 'absolute';
   span.style.whiteSpace = 'nowrap';
   span.style.fontSize = style.fontSize;
   span.style.fontFamily = style.fontFamily;
-  
+
   span.textContent = text;
-  
+
   document.body.appendChild(span);
   const width = span.offsetWidth;
-  
+
   document.body.removeChild(span);
-  
+
   return width;
 };
 
@@ -94,7 +106,7 @@ export function truncateText(text, maxWidth = 200) {
     return text;
   }
   if (!text) return text;
-  
+
   try {
     // Handle percentage-based maxWidth
     let actualMaxWidth = maxWidth;
@@ -103,19 +115,19 @@ export function truncateText(text, maxWidth = 200) {
       // Use window width as fallback container width
       actualMaxWidth = window.innerWidth * percentage;
     }
-    
+
     const width = measureTextWidth(text);
     if (width <= actualMaxWidth) return text;
-    
+
     let left = 0;
     let right = text.length;
     let result = text;
-    
+
     while (left <= right) {
       const mid = Math.floor((left + right) / 2);
       const truncated = text.slice(0, mid) + '...';
       const currentWidth = measureTextWidth(truncated);
-      
+
       if (currentWidth <= actualMaxWidth) {
         result = truncated;
         left = mid + 1;
@@ -123,10 +135,13 @@ export function truncateText(text, maxWidth = 200) {
         right = mid - 1;
       }
     }
-    
+
     return result;
   } catch (error) {
-    console.warn('Text measurement failed, falling back to character count', error);
+    console.warn(
+      'Text measurement failed, falling back to character count',
+      error,
+    );
     if (text.length > 20) {
       return text.slice(0, 17) + '...';
     }
@@ -149,11 +164,11 @@ export const renderGroupOption = (item) => {
     emptyContent,
     ...rest
   } = item;
-  
+
   const baseStyle = {
-    display: 'flex', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     padding: '8px 16px',
     cursor: disabled ? 'not-allowed' : 'pointer',
     backgroundColor: focused ? 'var(--semi-color-fill-0)' : 'transparent',
@@ -162,8 +177,8 @@ export const renderGroupOption = (item) => {
       backgroundColor: 'var(--semi-color-primary-light-default)',
     }),
     '&:hover': {
-      backgroundColor: !disabled && 'var(--semi-color-fill-1)'
-    }
+      backgroundColor: !disabled && 'var(--semi-color-fill-1)',
+    },
   };
 
   const handleClick = () => {
@@ -177,9 +192,9 @@ export const renderGroupOption = (item) => {
       onMouseEnter(e);
     }
   };
-  
+
   return (
-    <div 
+    <div
       style={baseStyle}
       onClick={handleClick}
       onMouseEnter={handleMouseEnter}
@@ -188,7 +203,7 @@ export const renderGroupOption = (item) => {
         <Typography.Text strong type={disabled ? 'tertiary' : undefined}>
           {value}
         </Typography.Text>
-        <Typography.Text type="secondary" size="small">
+        <Typography.Text type='secondary' size='small'>
           {label}
         </Typography.Text>
       </div>
@@ -222,8 +237,7 @@ export function renderQuotaNumberWithDigit(num, digits = 2) {
 }
 
 export function renderNumberWithPoint(num) {
-  if (num === undefined)
-    return '';
+  if (num === undefined) return '';
   num = num.toFixed(2);
   if (num >= 100000) {
     // Convert number to string to manipulate it
@@ -300,13 +314,25 @@ export function renderModelPrice(
   groupRatio,
   cacheTokens = 0,
   cacheRatio = 1.0,
+  image = false,
+  imageRatio = 1.0,
+  imageOutputTokens = 0,
+  webSearch = false,
+  webSearchCallCount = 0,
+  webSearchPrice = 0,
+  fileSearch = false,
+  fileSearchCallCount = 0,
+  fileSearchPrice = 0,
 ) {
   if (modelPrice !== -1) {
-    return i18next.t('模型价格：${{price}} * 分组倍率：{{ratio}} = ${{total}}', {
-      price: modelPrice,
-      ratio: groupRatio,
-      total: modelPrice * groupRatio
-    });
+    return i18next.t(
+      '模型价格：${{price}} * 分组倍率：{{ratio}} = ${{total}}',
+      {
+        price: modelPrice,
+        ratio: groupRatio,
+        total: modelPrice * groupRatio,
+      },
+    );
   } else {
     if (completionRatio === undefined) {
       completionRatio = 0;
@@ -314,60 +340,239 @@ export function renderModelPrice(
     let inputRatioPrice = modelRatio * 2.0;
     let completionRatioPrice = modelRatio * 2.0 * completionRatio;
     let cacheRatioPrice = modelRatio * 2.0 * cacheRatio;
-    
+    let imageRatioPrice = modelRatio * 2.0 * imageRatio;
+
     // Calculate effective input tokens (non-cached + cached with ratio applied)
-    const effectiveInputTokens = (inputTokens - cacheTokens) + (cacheTokens * cacheRatio);
-    
+    let effectiveInputTokens =
+      inputTokens - cacheTokens + cacheTokens * cacheRatio;
+    // Handle image tokens if present
+    if (image && imageOutputTokens > 0) {
+      effectiveInputTokens =
+        inputTokens - imageOutputTokens + imageOutputTokens * imageRatio;
+    }
+
     let price =
       (effectiveInputTokens / 1000000) * inputRatioPrice * groupRatio +
-      (completionTokens / 1000000) * completionRatioPrice * groupRatio;
-    
+      (completionTokens / 1000000) * completionRatioPrice * groupRatio +
+      (webSearchCallCount / 1000) * webSearchPrice * groupRatio +
+      (fileSearchCallCount / 1000) * fileSearchPrice * groupRatio;
+
     return (
       <>
         <article>
-          <p>{i18next.t('提示价格：${{price}} = ${{total}} / 1M tokens', {
-            price: inputRatioPrice,
-            total: inputRatioPrice
-          })}</p>
-          <p>{i18next.t('补全价格：${{price}} * {{completionRatio}} = ${{total}} / 1M tokens (补全倍率: {{completionRatio}})', {
-            price: inputRatioPrice,
-            total: completionRatioPrice,
-            completionRatio: completionRatio
-          })}</p>
-          {cacheTokens > 0 && (
-            <p>{i18next.t('缓存价格：${{price}} * {{cacheRatio}} = ${{total}} / 1M tokens (缓存倍率: {{cacheRatio}})', {
+          <p>
+            {i18next.t('输入价格：${{price}} / 1M tokens', {
               price: inputRatioPrice,
-              total: inputRatioPrice * cacheRatio,
-              cacheRatio: cacheRatio
-            })}</p>
+            })}
+          </p>
+          <p>
+            {i18next.t(
+              '输出价格：${{price}} * {{completionRatio}} = ${{total}} / 1M tokens (补全倍率: {{completionRatio}})',
+              {
+                price: inputRatioPrice,
+                total: completionRatioPrice,
+                completionRatio: completionRatio,
+              },
+            )}
+          </p>
+          {cacheTokens > 0 && (
+            <p>
+              {i18next.t(
+                '缓存价格：${{price}} * {{cacheRatio}} = ${{total}} / 1M tokens (缓存倍率: {{cacheRatio}})',
+                {
+                  price: inputRatioPrice,
+                  total: inputRatioPrice * cacheRatio,
+                  cacheRatio: cacheRatio,
+                },
+              )}
+            </p>
+          )}
+          {image && imageOutputTokens > 0 && (
+            <p>
+              {i18next.t(
+                '图片输入价格：${{price}} * {{ratio}} = ${{total}} / 1M tokens (图片倍率: {{imageRatio}})',
+                {
+                  price: imageRatioPrice,
+                  ratio: groupRatio,
+                  total: imageRatioPrice * groupRatio,
+                  imageRatio: imageRatio,
+                },
+              )}
+            </p>
+          )}
+          {webSearch && webSearchCallCount > 0 && (
+            <p>
+              {i18next.t('Web搜索价格：${{price}} / 1K 次', {
+                price: webSearchPrice,
+              })}
+            </p>
+          )}
+          {fileSearch && fileSearchCallCount > 0 && (
+            <p>
+              {i18next.t('文件搜索价格：${{price}} / 1K 次', {
+                price: fileSearchPrice,
+              })}
+            </p>
           )}
           <p></p>
           <p>
-            {cacheTokens > 0 ? 
-              i18next.t('提示 {{nonCacheInput}} tokens / 1M tokens * ${{price}} + 缓存 {{cacheInput}} tokens / 1M tokens * ${{cachePrice}} + 补全 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} = ${{total}}', {
-                nonCacheInput: inputTokens - cacheTokens,
-                cacheInput: cacheTokens,
-                cachePrice: inputRatioPrice * cacheRatio,
-                price: inputRatioPrice,
-                completion: completionTokens,
-                compPrice: completionRatioPrice,
-                ratio: groupRatio,
-                total: price.toFixed(6)
-              }) :
-              i18next.t('提示 {{input}} tokens / 1M tokens * ${{price}} + 补全 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} = ${{total}}', {
-                input: inputTokens,
-                price: inputRatioPrice,
-                completion: completionTokens,
-                compPrice: completionRatioPrice,
-                ratio: groupRatio,
-                total: price.toFixed(6)
-              })
-            }
+            {cacheTokens > 0 && !image && !webSearch && !fileSearch
+              ? i18next.t(
+                  '输入 {{nonCacheInput}} tokens / 1M tokens * ${{price}} + 缓存 {{cacheInput}} tokens / 1M tokens * ${{cachePrice}} + 输出 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} = ${{total}}',
+                  {
+                    nonCacheInput: inputTokens - cacheTokens,
+                    cacheInput: cacheTokens,
+                    cachePrice: inputRatioPrice * cacheRatio,
+                    price: inputRatioPrice,
+                    completion: completionTokens,
+                    compPrice: completionRatioPrice,
+                    ratio: groupRatio,
+                    total: price.toFixed(6),
+                  },
+                )
+              : image && imageOutputTokens > 0 && !webSearch && !fileSearch
+                ? i18next.t(
+                    '输入 {{nonImageInput}} tokens + 图片输入 {{imageInput}} tokens * {{imageRatio}} / 1M tokens * ${{price}} + 输出 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} = ${{total}}',
+                    {
+                      nonImageInput: inputTokens - imageOutputTokens,
+                      imageInput: imageOutputTokens,
+                      imageRatio: imageRatio,
+                      price: inputRatioPrice,
+                      completion: completionTokens,
+                      compPrice: completionRatioPrice,
+                      ratio: groupRatio,
+                      total: price.toFixed(6),
+                    },
+                  )
+                : webSearch && webSearchCallCount > 0 && !image && !fileSearch
+                  ? i18next.t(
+                      '输入 {{input}} tokens / 1M tokens * ${{price}} + 输出 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} + Web搜索 {{webSearchCallCount}}次 / 1K 次 * ${{webSearchPrice}} * {{ratio}} = ${{total}}',
+                      {
+                        input: inputTokens,
+                        price: inputRatioPrice,
+                        completion: completionTokens,
+                        compPrice: completionRatioPrice,
+                        ratio: groupRatio,
+                        webSearchCallCount,
+                        webSearchPrice,
+                        total: price.toFixed(6),
+                      },
+                    )
+                  : fileSearch &&
+                      fileSearchCallCount > 0 &&
+                      !image &&
+                      !webSearch
+                    ? i18next.t(
+                        '输入 {{input}} tokens / 1M tokens * ${{price}} + 输出 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} + 文件搜索 {{fileSearchCallCount}}次 / 1K 次 * ${{fileSearchPrice}} * {{ratio}}= ${{total}}',
+                        {
+                          input: inputTokens,
+                          price: inputRatioPrice,
+                          completion: completionTokens,
+                          compPrice: completionRatioPrice,
+                          ratio: groupRatio,
+                          fileSearchCallCount,
+                          fileSearchPrice,
+                          total: price.toFixed(6),
+                        },
+                      )
+                    : webSearch &&
+                        webSearchCallCount > 0 &&
+                        fileSearch &&
+                        fileSearchCallCount > 0 &&
+                        !image
+                      ? i18next.t(
+                          '输入 {{input}} tokens / 1M tokens * ${{price}} + 输出 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} + Web搜索 {{webSearchCallCount}}次 / 1K 次 * ${{webSearchPrice}} * {{ratio}}+ 文件搜索 {{fileSearchCallCount}}次 / 1K 次 * ${{fileSearchPrice}} * {{ratio}}= ${{total}}',
+                          {
+                            input: inputTokens,
+                            price: inputRatioPrice,
+                            completion: completionTokens,
+                            compPrice: completionRatioPrice,
+                            ratio: groupRatio,
+                            webSearchCallCount,
+                            webSearchPrice,
+                            fileSearchCallCount,
+                            fileSearchPrice,
+                            total: price.toFixed(6),
+                          },
+                        )
+                      : i18next.t(
+                          '输入 {{input}} tokens / 1M tokens * ${{price}} + 输出 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} = ${{total}}',
+                          {
+                            input: inputTokens,
+                            price: inputRatioPrice,
+                            completion: completionTokens,
+                            compPrice: completionRatioPrice,
+                            ratio: groupRatio,
+                            total: price.toFixed(6),
+                          },
+                        )}
           </p>
           <p>{i18next.t('仅供参考，以实际扣费为准')}</p>
         </article>
       </>
     );
+  }
+}
+
+export function renderLogContent(
+  modelRatio,
+  completionRatio,
+  modelPrice = -1,
+  groupRatio,
+  user_group_ratio,
+  image = false,
+  imageRatio = 1.0,
+  useUserGroupRatio = undefined,
+  webSearch = false,
+  webSearchCallCount = 0,
+  fileSearch = false,
+  fileSearchCallCount = 0,
+) {
+  const ratioLabel = useUserGroupRatio
+    ? i18next.t('专属倍率')
+    : i18next.t('分组倍率');
+  const ratio = useUserGroupRatio ? user_group_ratio : groupRatio;
+
+  if (modelPrice !== -1) {
+    return i18next.t('模型价格 ${{price}}，{{ratioType}} {{ratio}}', {
+      price: modelPrice,
+      ratioType: ratioLabel,
+      ratio,
+    });
+  } else {
+    if (image) {
+      return i18next.t(
+        '模型倍率 {{modelRatio}}，输出倍率 {{completionRatio}}，图片输入倍率 {{imageRatio}}，{{ratioType}} {{ratio}}',
+        {
+          modelRatio: modelRatio,
+          completionRatio: completionRatio,
+          imageRatio: imageRatio,
+          ratioType: ratioLabel,
+          ratio,
+        },
+      );
+    } else if (webSearch) {
+      return i18next.t(
+        '模型倍率 {{modelRatio}}，输出倍率 {{completionRatio}}，{{ratioType}} {{ratio}}，Web 搜索调用 {{webSearchCallCount}} 次',
+        {
+          modelRatio: modelRatio,
+          completionRatio: completionRatio,
+          ratioType: ratioLabel,
+          ratio,
+          webSearchCallCount,
+        },
+      );
+    } else {
+      return i18next.t(
+        '模型倍率 {{modelRatio}}，输出倍率 {{completionRatio}}，{{ratioType}} {{ratio}}',
+        {
+          modelRatio: modelRatio,
+          completionRatio: completionRatio,
+          ratioType: ratioLabel,
+          ratio,
+        },
+      );
+    }
   }
 }
 
@@ -377,23 +582,49 @@ export function renderModelPriceSimple(
   groupRatio,
   cacheTokens = 0,
   cacheRatio = 1.0,
+  image = false,
+  imageRatio = 1.0,
 ) {
   if (modelPrice !== -1) {
     return i18next.t('价格：${{price}} * 分组：{{ratio}}', {
       price: modelPrice,
-      ratio: groupRatio
+      ratio: groupRatio,
     });
   } else {
-    if (cacheTokens !== 0) {
-      return i18next.t('模型: {{ratio}} * 分组: {{groupRatio}} * 缓存: {{cacheRatio}}', {
-        ratio: modelRatio,
-        groupRatio: groupRatio,
-        cacheRatio: cacheRatio
-      });
+    if (image && cacheTokens !== 0) {
+      return i18next.t(
+        '模型: {{ratio}} * {{ratioType}}: {{groupRatio}} * 缓存倍率: {{cacheRatio}} * 图片输入倍率: {{imageRatio}}',
+        {
+          ratio: modelRatio,
+          ratioType: ratioLabel,
+          groupRatio: groupRatio,
+          cacheRatio: cacheRatio,
+          imageRatio: imageRatio,
+        },
+      );
+    } else if (image) {
+      return i18next.t(
+        '模型: {{ratio}} * {{ratioType}}: {{groupRatio}} * 图片输入倍率: {{imageRatio}}',
+        {
+          ratio: modelRatio,
+          ratioType: ratioLabel,
+          groupRatio: groupRatio,
+          imageRatio: imageRatio,
+        },
+      );
+    } else if (cacheTokens !== 0) {
+      return i18next.t(
+        '模型: {{ratio}} * 分组: {{groupRatio}} * 缓存: {{cacheRatio}}',
+        {
+          ratio: modelRatio,
+          groupRatio: groupRatio,
+          cacheRatio: cacheRatio,
+        },
+      );
     } else {
       return i18next.t('模型: {{ratio}} * 分组: {{groupRatio}}', {
         ratio: modelRatio,
-        groupRatio: groupRatio
+        groupRatio: groupRatio,
       });
     }
   }
@@ -415,11 +646,14 @@ export function renderAudioModelPrice(
 ) {
   // 1 ratio = $0.002 / 1K tokens
   if (modelPrice !== -1) {
-    return i18next.t('模型价格：${{price}} * 分组倍率：{{ratio}} = ${{total}}', {
-      price: modelPrice,
-      ratio: groupRatio,
-      total: modelPrice * groupRatio
-    });
+    return i18next.t(
+      '模型价格：${{price}} * 分组倍率：{{ratio}} = ${{total}}',
+      {
+        price: modelPrice,
+        ratio: groupRatio,
+        total: modelPrice * groupRatio,
+      },
+    );
   } else {
     if (completionRatio === undefined) {
       completionRatio = 0;
@@ -431,82 +665,120 @@ export function renderAudioModelPrice(
     let inputRatioPrice = modelRatio * 2.0;
     let completionRatioPrice = modelRatio * 2.0 * completionRatio;
     let cacheRatioPrice = modelRatio * 2.0 * cacheRatio;
-    
+
     // Calculate effective input tokens (non-cached + cached with ratio applied)
-    const effectiveInputTokens = (inputTokens - cacheTokens) + (cacheTokens * cacheRatio);
-    
+    const effectiveInputTokens =
+      inputTokens - cacheTokens + cacheTokens * cacheRatio;
+
     let textPrice =
       (effectiveInputTokens / 1000000) * inputRatioPrice * groupRatio +
-      (completionTokens / 1000000) * completionRatioPrice * groupRatio
+      (completionTokens / 1000000) * completionRatioPrice * groupRatio;
     let audioPrice =
       (audioInputTokens / 1000000) * inputRatioPrice * audioRatio * groupRatio +
-      (audioCompletionTokens / 1000000) * inputRatioPrice * audioRatio * audioCompletionRatio * groupRatio;
+      (audioCompletionTokens / 1000000) *
+        inputRatioPrice *
+        audioRatio *
+        audioCompletionRatio *
+        groupRatio;
     let price = textPrice + audioPrice;
     return (
       <>
         <article>
-          <p>{i18next.t('提示价格：${{price}} = ${{total}} / 1M tokens', {
-            price: inputRatioPrice,
-            total: inputRatioPrice
-          })}</p>
-          <p>{i18next.t('补全价格：${{price}} * {{completionRatio}} = ${{total}} / 1M tokens (补全倍率: {{completionRatio}})', {
-            price: inputRatioPrice,
-            total: completionRatioPrice,
-            completionRatio: completionRatio
-          })}</p>
-          {cacheTokens > 0 && (
-            <p>{i18next.t('缓存价格：${{price}} * {{cacheRatio}} = ${{total}} / 1M tokens (缓存倍率: {{cacheRatio}})', {
+          <p>
+            {i18next.t('提示价格：${{price}} / 1M tokens', {
               price: inputRatioPrice,
-              total: inputRatioPrice * cacheRatio,
-              cacheRatio: cacheRatio
-            })}</p>
+            })}
+          </p>
+          <p>
+            {i18next.t(
+              '补全价格：${{price}} * {{completionRatio}} = ${{total}} / 1M tokens (补全倍率: {{completionRatio}})',
+              {
+                price: inputRatioPrice,
+                total: completionRatioPrice,
+                completionRatio: completionRatio,
+              },
+            )}
+          </p>
+          {cacheTokens > 0 && (
+            <p>
+              {i18next.t(
+                '缓存价格：${{price}} * {{cacheRatio}} = ${{total}} / 1M tokens (缓存倍率: {{cacheRatio}})',
+                {
+                  price: inputRatioPrice,
+                  total: inputRatioPrice * cacheRatio,
+                  cacheRatio: cacheRatio,
+                },
+              )}
+            </p>
           )}
-          <p>{i18next.t('音频提示价格：${{price}} * {{audioRatio}} = ${{total}} / 1M tokens (音频倍率: {{audioRatio}})', {
-            price: inputRatioPrice,
-            total: inputRatioPrice * audioRatio,
-            audioRatio: audioRatio
-          })}</p>
-          <p>{i18next.t('音频补全价格：${{price}} * {{audioRatio}} * {{audioCompRatio}} = ${{total}} / 1M tokens (音频补全倍率: {{audioCompRatio}})', {
-            price: inputRatioPrice,
-            total: inputRatioPrice * audioRatio * audioCompletionRatio,
-            audioRatio: audioRatio,
-            audioCompRatio: audioCompletionRatio
-          })}</p>
           <p>
-            {cacheTokens > 0 ? 
-              i18next.t('文字提示 {{nonCacheInput}} tokens / 1M tokens * ${{price}} + 缓存 {{cacheInput}} tokens / 1M tokens * ${{cachePrice}} + 文字补全 {{completion}} tokens / 1M tokens * ${{compPrice}} = ${{total}}', {
-                nonCacheInput: inputTokens - cacheTokens,
-                cacheInput: cacheTokens,
-                cachePrice: inputRatioPrice * cacheRatio,
+            {i18next.t(
+              '音频提示价格：${{price}} * {{audioRatio}} = ${{total}} / 1M tokens (音频倍率: {{audioRatio}})',
+              {
                 price: inputRatioPrice,
-                completion: completionTokens,
-                compPrice: completionRatioPrice,
-                total: textPrice.toFixed(6)
-              }) :
-              i18next.t('文字提示 {{input}} tokens / 1M tokens * ${{price}} + 文字补全 {{completion}} tokens / 1M tokens * ${{compPrice}} = ${{total}}', {
-                input: inputTokens,
-                price: inputRatioPrice,
-                completion: completionTokens,
-                compPrice: completionRatioPrice,
-                total: textPrice.toFixed(6)
-              })
-            }
+                total: inputRatioPrice * audioRatio,
+                audioRatio: audioRatio,
+              },
+            )}
           </p>
           <p>
-            {i18next.t('音频提示 {{input}} tokens / 1M tokens * ${{audioInputPrice}} + 音频补全 {{completion}} tokens / 1M tokens * ${{audioCompPrice}} = ${{total}}', {
-              input: audioInputTokens,
-              completion: audioCompletionTokens,
-              audioInputPrice: audioRatio * inputRatioPrice,
-              audioCompPrice: audioRatio * audioCompletionRatio * inputRatioPrice,
-              total: audioPrice.toFixed(6)
-            })}
+            {i18next.t(
+              '音频补全价格：${{price}} * {{audioRatio}} * {{audioCompRatio}} = ${{total}} / 1M tokens (音频补全倍率: {{audioCompRatio}})',
+              {
+                price: inputRatioPrice,
+                total: inputRatioPrice * audioRatio * audioCompletionRatio,
+                audioRatio: audioRatio,
+                audioCompRatio: audioCompletionRatio,
+              },
+            )}
           </p>
           <p>
-            {i18next.t('总价：文字价格 {{textPrice}} + 音频价格 {{audioPrice}} = ${{total}}', {
-              total: price.toFixed(6),
-              textPrice: textPrice.toFixed(6),
-              audioPrice: audioPrice.toFixed(6)
-            })}
+            {cacheTokens > 0
+              ? i18next.t(
+                  '文字提示 {{nonCacheInput}} tokens / 1M tokens * ${{price}} + 缓存 {{cacheInput}} tokens / 1M tokens * ${{cachePrice}} + 文字补全 {{completion}} tokens / 1M tokens * ${{compPrice}} = ${{total}}',
+                  {
+                    nonCacheInput: inputTokens - cacheTokens,
+                    cacheInput: cacheTokens,
+                    cachePrice: inputRatioPrice * cacheRatio,
+                    price: inputRatioPrice,
+                    completion: completionTokens,
+                    compPrice: completionRatioPrice,
+                    total: textPrice.toFixed(6),
+                  },
+                )
+              : i18next.t(
+                  '文字提示 {{input}} tokens / 1M tokens * ${{price}} + 文字补全 {{completion}} tokens / 1M tokens * ${{compPrice}} = ${{total}}',
+                  {
+                    input: inputTokens,
+                    price: inputRatioPrice,
+                    completion: completionTokens,
+                    compPrice: completionRatioPrice,
+                    total: textPrice.toFixed(6),
+                  },
+                )}
+          </p>
+          <p>
+            {i18next.t(
+              '音频提示 {{input}} tokens / 1M tokens * ${{audioInputPrice}} + 音频补全 {{completion}} tokens / 1M tokens * ${{audioCompPrice}} = ${{total}}',
+              {
+                input: audioInputTokens,
+                completion: audioCompletionTokens,
+                audioInputPrice: audioRatio * inputRatioPrice,
+                audioCompPrice:
+                  audioRatio * audioCompletionRatio * inputRatioPrice,
+                total: audioPrice.toFixed(6),
+              },
+            )}
+          </p>
+          <p>
+            {i18next.t(
+              '总价：文字价格 {{textPrice}} + 音频价格 {{audioPrice}} = ${{total}}',
+              {
+                total: price.toFixed(6),
+                textPrice: textPrice.toFixed(6),
+                audioPrice: audioPrice.toFixed(6),
+              },
+            )}
           </p>
           <p>{i18next.t('仅供参考，以实际扣费为准')}</p>
         </article>
@@ -519,7 +791,9 @@ export function renderQuotaWithPrompt(quota, digits) {
   let displayInCurrency = localStorage.getItem('display_in_currency');
   displayInCurrency = displayInCurrency === 'true';
   if (displayInCurrency) {
-    return ' | ' + i18next.t('等价金额') + ': ' + renderQuota(quota, digits) + '';
+    return (
+      ' | ' + i18next.t('等价金额') + ': ' + renderQuota(quota, digits) + ''
+    );
   }
   return '';
 }
@@ -539,7 +813,7 @@ const colors = [
   'red',
   'teal',
   'violet',
-  'yellow'
+  'yellow',
 ];
 
 // 基础10色色板 (N ≤ 10)
@@ -553,7 +827,7 @@ const baseColors = [
   '#304D77',
   '#B48DEB',
   '#009488',
-  '#FF7DDA'
+  '#FF7DDA',
 ];
 
 // 扩展20色色板 (10 < N ≤ 20)
@@ -577,7 +851,7 @@ const extendedColors = [
   '#009488',
   '#59BAA8',
   '#FF7DDA',
-  '#FFCFEE'
+  '#FFCFEE',
 ];
 
 export const modelColorMap = {
@@ -633,14 +907,14 @@ export function modelToColor(modelName) {
   // 2. 生成一个稳定的数字作为索引
   let hash = 0;
   for (let i = 0; i < modelName.length; i++) {
-    hash = ((hash << 5) - hash) + modelName.charCodeAt(i);
+    hash = (hash << 5) - hash + modelName.charCodeAt(i);
     hash = hash & hash; // Convert to 32-bit integer
   }
   hash = Math.abs(hash);
 
   // 3. 根据模型名称长度选择不同的色板
   const colorPalette = modelName.length > 10 ? extendedColors : baseColors;
-  
+
   // 4. 使用hash值选择颜色
   const index = hash % colorPalette.length;
   return colorPalette[index];
@@ -653,4 +927,203 @@ export function stringToColor(str) {
   }
   let i = sum % colors.length;
   return colors[i];
+}
+
+export function renderClaudeModelPrice(
+  inputTokens,
+  completionTokens,
+  modelRatio,
+  modelPrice = -1,
+  completionRatio,
+  groupRatio,
+  cacheTokens = 0,
+  cacheRatio = 1.0,
+  cacheCreationTokens = 0,
+  cacheCreationRatio = 1.0,
+) {
+  const ratioLabel = false ? i18next.t('专属倍率') : i18next.t('分组倍率');
+
+  if (modelPrice !== -1) {
+    return i18next.t(
+      '模型价格：${{price}} * {{ratioType}}：{{ratio}} = ${{total}}',
+      {
+        price: modelPrice,
+        ratioType: ratioLabel,
+        ratio: groupRatio,
+        total: modelPrice * groupRatio,
+      },
+    );
+  } else {
+    if (completionRatio === undefined) {
+      completionRatio = 0;
+    }
+
+    const completionRatioValue = completionRatio || 0;
+    const inputRatioPrice = modelRatio * 2.0;
+    const completionRatioPrice = modelRatio * 2.0 * completionRatioValue;
+    let cacheRatioPrice = (modelRatio * 2.0 * cacheRatio).toFixed(2);
+    let cacheCreationRatioPrice = modelRatio * 2.0 * cacheCreationRatio;
+
+    // Calculate effective input tokens (non-cached + cached with ratio applied + cache creation with ratio applied)
+    const nonCachedTokens = inputTokens;
+    const effectiveInputTokens =
+      nonCachedTokens +
+      cacheTokens * cacheRatio +
+      cacheCreationTokens * cacheCreationRatio;
+
+    let price =
+      (effectiveInputTokens / 1000000) * inputRatioPrice * groupRatio +
+      (completionTokens / 1000000) * completionRatioPrice * groupRatio;
+
+    return (
+      <>
+        <article>
+          <p>
+            {i18next.t('提示价格：${{price}} / 1M tokens', {
+              price: inputRatioPrice,
+            })}
+          </p>
+          <p>
+            {i18next.t(
+              '补全价格：${{price}} * {{ratio}} = ${{total}} / 1M tokens',
+              {
+                price: inputRatioPrice,
+                ratio: completionRatio,
+                total: completionRatioPrice,
+              },
+            )}
+          </p>
+          {cacheTokens > 0 && (
+            <p>
+              {i18next.t(
+                '缓存价格：${{price}} * {{ratio}} = ${{total}} / 1M tokens (缓存倍率: {{cacheRatio}})',
+                {
+                  price: inputRatioPrice,
+                  ratio: cacheRatio,
+                  total: cacheRatioPrice,
+                  cacheRatio: cacheRatio,
+                },
+              )}
+            </p>
+          )}
+          {cacheCreationTokens > 0 && (
+            <p>
+              {i18next.t(
+                '缓存创建价格：${{price}} * {{ratio}} = ${{total}} / 1M tokens (缓存创建倍率: {{cacheCreationRatio}})',
+                {
+                  price: inputRatioPrice,
+                  ratio: cacheCreationRatio,
+                  total: cacheCreationRatioPrice,
+                  cacheCreationRatio: cacheCreationRatio,
+                },
+              )}
+            </p>
+          )}
+          <p></p>
+          <p>
+            {cacheTokens > 0 || cacheCreationTokens > 0
+              ? i18next.t(
+                  '提示 {{nonCacheInput}} tokens / 1M tokens * ${{price}} + 缓存 {{cacheInput}} tokens / 1M tokens * ${{cachePrice}} + 缓存创建 {{cacheCreationInput}} tokens / 1M tokens * ${{cacheCreationPrice}} + 补全 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} = ${{total}}',
+                  {
+                    nonCacheInput: nonCachedTokens,
+                    cacheInput: cacheTokens,
+                    cacheRatio: cacheRatio,
+                    cacheCreationInput: cacheCreationTokens,
+                    cacheCreationRatio: cacheCreationRatio,
+                    cachePrice: cacheRatioPrice,
+                    cacheCreationPrice: cacheCreationRatioPrice,
+                    price: inputRatioPrice,
+                    completion: completionTokens,
+                    compPrice: completionRatioPrice,
+                    ratio: groupRatio,
+                    total: price.toFixed(6),
+                  },
+                )
+              : i18next.t(
+                  '提示 {{input}} tokens / 1M tokens * ${{price}} + 补全 {{completion}} tokens / 1M tokens * ${{compPrice}} * 分组 {{ratio}} = ${{total}}',
+                  {
+                    input: inputTokens,
+                    price: inputRatioPrice,
+                    completion: completionTokens,
+                    compPrice: completionRatioPrice,
+                    ratio: groupRatio,
+                    total: price.toFixed(6),
+                  },
+                )}
+          </p>
+          <p>{i18next.t('仅供参考，以实际扣费为准')}</p>
+        </article>
+      </>
+    );
+  }
+}
+
+export function renderClaudeLogContent(
+  modelRatio,
+  completionRatio,
+  modelPrice = -1,
+  groupRatio,
+  cacheRatio = 1.0,
+  cacheCreationRatio = 1.0,
+) {
+  const ratioLabel = false ? i18next.t('专属倍率') : i18next.t('分组倍率');
+
+  if (modelPrice !== -1) {
+    return i18next.t('模型价格 ${{price}}，{{ratioType}} {{ratio}}', {
+      price: modelPrice,
+      ratioType: ratioLabel,
+      ratio: groupRatio,
+    });
+  } else {
+    return i18next.t(
+      '模型倍率 {{modelRatio}}，输出倍率 {{completionRatio}}，缓存倍率 {{cacheRatio}}，缓存创建倍率 {{cacheCreationRatio}}，{{ratioType}} {{ratio}}',
+      {
+        modelRatio: modelRatio,
+        completionRatio: completionRatio,
+        cacheRatio: cacheRatio,
+        cacheCreationRatio: cacheCreationRatio,
+        ratioType: ratioLabel,
+        ratio: groupRatio,
+      },
+    );
+  }
+}
+
+export function renderClaudeModelPriceSimple(
+  modelRatio,
+  modelPrice = -1,
+  groupRatio,
+  cacheTokens = 0,
+  cacheRatio = 1.0,
+  cacheCreationTokens = 0,
+  cacheCreationRatio = 1.0,
+) {
+  const ratioLabel = false ? i18next.t('专属倍率') : i18next.t('分组');
+
+  if (modelPrice !== -1) {
+    return i18next.t('价格：${{price}} * {{ratioType}}：{{ratio}}', {
+      price: modelPrice,
+      ratioType: ratioLabel,
+      ratio: groupRatio,
+    });
+  } else {
+    if (cacheTokens !== 0 || cacheCreationTokens !== 0) {
+      return i18next.t(
+        '模型: {{ratio}} * {{ratioType}}: {{groupRatio}} * 缓存: {{cacheRatio}}',
+        {
+          ratio: modelRatio,
+          ratioType: ratioLabel,
+          groupRatio: groupRatio,
+          cacheRatio: cacheRatio,
+          cacheCreationRatio: cacheCreationRatio,
+        },
+      );
+    } else {
+      return i18next.t('模型: {{ratio}} * {{ratioType}}: {{groupRatio}}', {
+        ratio: modelRatio,
+        ratioType: ratioLabel,
+        groupRatio: groupRatio,
+      });
+    }
+  }
 }

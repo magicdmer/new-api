@@ -12,6 +12,7 @@ import (
 	"one-api/model"
 	"one-api/router"
 	"one-api/service"
+	"one-api/setting/operation_setting"
 	"os"
 	"strconv"
 
@@ -33,7 +34,7 @@ var indexPage []byte
 func main() {
 	err := godotenv.Load(".env")
 	if err != nil {
-		common.SysLog("Support for .env file is disabled")
+		common.SysLog("Support for .env file is disabled: " + err.Error())
 	}
 
 	common.LoadEnv()
@@ -51,6 +52,9 @@ func main() {
 	if err != nil {
 		common.FatalLog("failed to initialize database: " + err.Error())
 	}
+
+	model.CheckSetup()
+
 	// Initialize SQL Database
 	err = model.InitLogDB()
 	if err != nil {
@@ -69,10 +73,15 @@ func main() {
 		common.FatalLog("failed to initialize Redis: " + err.Error())
 	}
 
+	// Initialize model settings
+	operation_setting.InitRatioSettings()
 	// Initialize constants
 	constant.InitEnv()
 	// Initialize options
 	model.InitOptionMap()
+
+	service.InitTokenEncoders()
+
 	if common.RedisEnabled {
 		// for compatibility with old versions
 		common.MemoryCacheEnabled = true
@@ -125,8 +134,6 @@ func main() {
 		go common.Monitor()
 		common.SysLog("pprof enabled")
 	}
-
-	service.InitTokenEncoders()
 
 	// Initialize HTTP server
 	server := gin.New()
