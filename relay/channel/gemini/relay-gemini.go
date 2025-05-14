@@ -64,14 +64,6 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, info *relaycommon
 	}
 	geminiRequest.SafetySettings = safetySettings
 
-	if textRequest.Model == "gemini-2.0-flash-exp" {
-		geminiRequest.Tools = []GeminiChatTool{
-			{
-				GoogleSearch: make(map[string]string),
-			},
-		}
-	}
-
 	// openaiContent.FuncToToolCalls()
 	if textRequest.Tools != nil {
 		functions := make([]dto.FunctionRequest, 0, len(textRequest.Tools))
@@ -107,7 +99,7 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, info *relaycommon
 				CodeExecution: make(map[string]string),
 			})
 		}
-		if googleSearch && textRequest.Model != "gemini-2.0-flash-exp" {
+		if googleSearch {
 			geminiRequest.Tools = append(geminiRequest.Tools, GeminiChatTool{
 				GoogleSearch: make(map[string]string),
 			})
