@@ -43,6 +43,7 @@ type GeneralOpenAIRequest struct {
 	ResponseFormat   *ResponseFormat   `json:"response_format,omitempty"`
 	EncodingFormat   any               `json:"encoding_format,omitempty"`
 	Seed             float64           `json:"seed,omitempty"`
+	ParallelTooCalls *bool             `json:"parallel_tool_calls,omitempty"`
 	Tools            []ToolCallRequest `json:"tools,omitempty"`
 	ToolChoice       any               `json:"tool_choice,omitempty"`
 	User             string            `json:"user,omitempty"`
@@ -53,6 +54,7 @@ type GeneralOpenAIRequest struct {
 	Audio            any               `json:"audio,omitempty"`
 	EnableThinking   any               `json:"enable_thinking,omitempty"` // ali
 	ExtraBody        any               `json:"extra_body,omitempty"`
+	WebSearchOptions *WebSearchOptions `json:"web_search_options,omitempty"`
 }
 
 type ToolCallRequest struct {
@@ -369,6 +371,11 @@ func (m *Message) ParseContent() []MediaContent {
 		m.parsedContent = contentList
 	}
 	return contentList
+}
+
+type WebSearchOptions struct {
+	SearchContextSize string          `json:"search_context_size,omitempty"`
+	UserLocation      json.RawMessage `json:"user_location,omitempty"`
 }
 
 type OpenAIResponsesRequest struct {
