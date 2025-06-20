@@ -35,23 +35,10 @@ func GeminiTextGenerationHandler(c *gin.Context, resp *http.Response, info *rela
 		return nil, service.OpenAIErrorWrapper(err, "unmarshal_response_body_failed", http.StatusInternalServerError)
 	}
 
-	// 检查是否有候选响应
-	if len(geminiResponse.Candidates) == 0 {
-		return nil, &dto.OpenAIErrorWithStatusCode{
-			Error: dto.OpenAIError{
-				Message: "No candidates returned",
-				Type:    "server_error",
-				Param:   "",
-				Code:    500,
-			},
-			StatusCode: resp.StatusCode,
-		}
-	}
-
 	// 计算使用量（基于 UsageMetadata）
 	usage := dto.Usage{
 		PromptTokens:     geminiResponse.UsageMetadata.PromptTokenCount,
-		CompletionTokens: geminiResponse.UsageMetadata.CandidatesTokenCount,
+		CompletionTokens: geminiResponse.UsageMetadata.CandidatesTokenCount + geminiResponse.UsageMetadata.ThoughtsTokenCount,
 		TotalTokens:      geminiResponse.UsageMetadata.TotalTokenCount,
 	}
 
@@ -108,7 +95,7 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, resp *http.Response, info
 		// 更新使用量统计
 		if geminiResponse.UsageMetadata.TotalTokenCount != 0 {
 			usage.PromptTokens = geminiResponse.UsageMetadata.PromptTokenCount
-			usage.CompletionTokens = geminiResponse.UsageMetadata.CandidatesTokenCount
+			usage.CompletionTokens = geminiResponse.UsageMetadata.CandidatesTokenCount + geminiResponse.UsageMetadata.ThoughtsTokenCount
 			usage.TotalTokens = geminiResponse.UsageMetadata.TotalTokenCount
 			usage.CompletionTokenDetails.ReasoningTokens = geminiResponse.UsageMetadata.ThoughtsTokenCount
 			for _, detail := range geminiResponse.UsageMetadata.PromptTokensDetails {
@@ -136,7 +123,7 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, resp *http.Response, info
 	}
 
 	// 计算最终使用量
-	usage.CompletionTokens = usage.TotalTokens - usage.PromptTokens
+	// usage.CompletionTokens = usage.TotalTokens - usage.PromptTokens
 
 	// 移除流式响应结尾的[Done]，因为Gemini API没有发送Done的行为
 	//helper.Done(c)
