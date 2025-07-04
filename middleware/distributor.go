@@ -25,7 +25,7 @@ type ModelRequest struct {
 
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		allowIpsMap := c.GetStringMap("allow_ips")
+		allowIpsMap := common.GetContextKeyStringMap(c, constant.ContextKeyTokenAllowIps)
 		if len(allowIpsMap) != 0 {
 			clientIp := c.ClientIP()
 			if _, ok := allowIpsMap[clientIp]; !ok {
@@ -34,14 +34,14 @@ func Distribute() func(c *gin.Context) {
 			}
 		}
 		var channel *model.Channel
-		channelId, ok := c.Get("specific_channel_id")
+		channelId, ok := common.GetContextKey(c, constant.ContextKeyTokenSpecificChannelId)
 		modelRequest, shouldSelectChannel, err := getModelRequest(c)
 		if err != nil {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, "Invalid request, "+err.Error())
 			return
 		}
-		userGroup := c.GetString(constant.ContextKeyUserGroup)
-		tokenGroup := c.GetString("token_group")
+		userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+		tokenGroup := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
 		if tokenGroup != "" {
 			// check common.UserUsableGroups[userGroup]
 			if _, ok := setting.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
@@ -57,7 +57,7 @@ func Distribute() func(c *gin.Context) {
 			}
 			userGroup = tokenGroup
 		}
-		c.Set("group", userGroup)
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, userGroup)
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -76,9 +76,9 @@ func Distribute() func(c *gin.Context) {
 		} else {
 			// Select a channel for the user
 			// check token model mapping
-			modelLimitEnable := c.GetBool("token_model_limit_enabled")
+			modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
 			if modelLimitEnable {
-				s, ok := c.Get("token_model_limit")
+				s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
 				var tokenModelLimit map[string]bool
 				if ok {
 					tokenModelLimit = s.(map[string]bool)
@@ -121,7 +121,7 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 		}
-		c.Set(constant.ContextKeyRequestStartTime, time.Now())
+		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
 	}
@@ -171,15 +171,25 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		c.Set("platform", string(constant.TaskPlatformSuno))
 		c.Set("relay_mode", relayMode)
 	} else if strings.Contains(c.Request.URL.Path, "/v1/video/generations") {
-		relayMode := relayconstant.Path2RelayKling(c.Request.Method, c.Request.URL.Path)
-		if relayMode == relayconstant.RelayModeKlingFetchByID {
-			shouldSelectChannel = false
+		err = common.UnmarshalBodyReusable(c, &modelRequest)
+		var platform string
+		var relayMode int
+		if strings.HasPrefix(modelRequest.Model, "jimeng") {
+			platform = string(constant.TaskPlatformJimeng)
+			relayMode = relayconstant.Path2RelayJimeng(c.Request.Method, c.Request.URL.Path)
+			if relayMode == relayconstant.RelayModeJimengFetchByID {
+				shouldSelectChannel = false
+			}
 		} else {
-			err = common.UnmarshalBodyReusable(c, &modelRequest)
+			platform = string(constant.TaskPlatformKling)
+			relayMode = relayconstant.Path2RelayKling(c.Request.Method, c.Request.URL.Path)
+			if relayMode == relayconstant.RelayModeKlingFetchByID {
+				shouldSelectChannel = false
+			}
 		}
-		c.Set("platform", string(constant.TaskPlatformKling))
+		c.Set("platform", platform)
 		c.Set("relay_mode", relayMode)
-	} else if strings.HasPrefix(c.Request.URL.Path, "/v1beta/models/") {
+	} else if strings.HasPrefix(c.Request.URL.Path, "/v1beta/models/") || strings.HasPrefix(c.Request.URL.Path, "/v1/models/") {
 		// Gemini API 路径处理: /v1beta/models/gemini-2.0-flash:generateContent
 		relayMode := relayconstant.RelayModeGemini
 		modelName := extractModelNameFromGeminiPath(c.Request.URL.Path)
@@ -251,21 +261,21 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	c.Set("base_url", channel.GetBaseURL())
 	// TODO: api_version统一
 	switch channel.Type {
-	case common.ChannelTypeAzure:
+	case constant.ChannelTypeAzure:
 		c.Set("api_version", channel.Other)
-	case common.ChannelTypeVertexAi:
+	case constant.ChannelTypeVertexAi:
 		c.Set("region", channel.Other)
-	case common.ChannelTypeXunfei:
+	case constant.ChannelTypeXunfei:
 		c.Set("api_version", channel.Other)
-	case common.ChannelTypeGemini:
+	case constant.ChannelTypeGemini:
 		c.Set("api_version", channel.Other)
-	case common.ChannelTypeAli:
+	case constant.ChannelTypeAli:
 		c.Set("plugin", channel.Other)
-	case common.ChannelCloudflare:
+	case constant.ChannelCloudflare:
 		c.Set("api_version", channel.Other)
-	case common.ChannelTypeMokaAI:
+	case constant.ChannelTypeMokaAI:
 		c.Set("api_version", channel.Other)
-	case common.ChannelTypeCoze:
+	case constant.ChannelTypeCoze:
 		c.Set("bot_id", channel.Other)
 	}
 }
