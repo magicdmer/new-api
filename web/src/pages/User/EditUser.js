@@ -81,7 +81,7 @@ const EditUser = (props) => {
     if (success) {
       data.password = '';
       formApiRef.current?.setValues({ ...getInitValues(), ...data });
-      setUnlimitedQuota(data.unlimited_quota);
+      setUnlimitedQuota(data.unlimited_quota || false);
     } else {
       showError(message);
     }
@@ -173,16 +173,16 @@ const EditUser = (props) => {
             initValues={getInitValues()}
             getFormApi={(api) => (formApiRef.current = api)}
             onSubmit={submit}
+            onChange={(values) => {
+              // 当无限额度开关打开时，清空额度
+              if (values.unlimited_quota && values.quota > 0) {
+                setTimeout(() => {
+                  formApiRef.current?.setValue('quota', 0);
+                }, 0);
+              }
+            }}
           >
-            {({ values, formApi }) => {
-              // 当无限额度开关改变时，重置额度
-              React.useEffect(() => {
-                if (values.unlimited_quota) {
-                  formApi.setValue('quota', 0);
-                }
-              }, [values.unlimited_quota, formApi]);
-
-              return (
+            {({ values }) => (
               <div className='p-2'>
                 {/* 基本信息 */}
                 <Card className='!rounded-2xl shadow-sm border-0'>
@@ -323,8 +323,7 @@ const EditUser = (props) => {
                   </Row>
                 </Card>
               </div>
-              );
-            }}
+            )}
           </Form>
         </Spin>
       </SideSheet>
