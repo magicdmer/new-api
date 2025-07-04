@@ -37,12 +37,6 @@ const { Text, Title } = Typography;
 const EditUser = (props) => {
   const { t } = useTranslation();
   const userId = props.editingUser.id;
-  const [loading, setLoading] = useState(true);
-  const [addQuotaModalOpen, setIsModalOpen] = useState(false);
-  const [addQuotaLocal, setAddQuotaLocal] = useState('0');
-  const [groupOptions, setGroupOptions] = useState([]);
-  const formApiRef = useRef(null);
-
   const isEdit = Boolean(userId);
 
   const getInitValues = () => ({
@@ -59,16 +53,13 @@ const EditUser = (props) => {
     remark: '',
   });
 
+  const [loading, setLoading] = useState(true);
+  const [addQuotaModalOpen, setIsModalOpen] = useState(false);
+  const [addQuotaLocal, setAddQuotaLocal] = useState('0');
+  const [groupOptions, setGroupOptions] = useState([]);
+  const formApiRef = useRef(null);
   const [unlimitedQuota, setUnlimitedQuota] = useState(false);
-  const handleInputChange = (name, value) => {
-    setInputs((inputs) => ({ ...inputs, [name]: value }));
-    if (name === 'unlimited_quota') {
-      setUnlimitedQuota(value);
-      if (value) {
-        setInputs((inputs) => ({ ...inputs, quota: 0 }));
-      }
-    }
-  };
+
   const fetchGroups = async () => {
     try {
       let res = await API.get(`/api/group/`);
@@ -124,6 +115,10 @@ const EditUser = (props) => {
   };
 
   /* --------------------- quota helper -------------------- */
+  const openAddQuotaModal = () => {
+    setIsModalOpen(true);
+  };
+
   const addLocalQuota = () => {
     const current = parseInt(formApiRef.current?.getValue('quota') || 0);
     const delta = parseInt(addQuotaLocal) || 0;
@@ -179,7 +174,15 @@ const EditUser = (props) => {
             getFormApi={(api) => (formApiRef.current = api)}
             onSubmit={submit}
           >
-            {({ values }) => (
+            {({ values, formApi }) => {
+              // 当无限额度开关改变时，重置额度
+              React.useEffect(() => {
+                if (values.unlimited_quota) {
+                  formApi.setValue('quota', 0);
+                }
+              }, [values.unlimited_quota, formApi]);
+
+              return (
               <div className='p-2'>
                 {/* 基本信息 */}
                 <Card className='!rounded-2xl shadow-sm border-0'>
@@ -247,51 +250,50 @@ const EditUser = (props) => {
                   </div>
                   </div>
 
-                    <Row gutter={12}>
+                                        <Row gutter={12}>
                       <Col span={24}>
                         <Form.Select
                           field='group'
                           label={t('分组')}
-                      placeholder={t('请选择分组')}
+                          placeholder={t('请选择分组')}
                           optionList={groupOptions}
                           allowAdditions
-                      search
+                          search
                           rules={[{ required: true, message: t('请选择分组') }]}
-                    />
+                        />
                       </Col>
 
-                  <div>
-                    <div className="flex justify-between mb-2">
-                      <Text strong>{t('剩余额度')}</Text>
-                      <Text type="tertiary">{renderQuotaWithPrompt(quota)}</Text>
-                    </div>
-                    <div style={{ marginTop: 20 }}>
-                      <Typography.Text>{t('额度设置')}</Typography.Text>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: 8 }}>
-                        <Space>
-                          <Input
-                            name='quota'
+                      <Col span={8}>
+                        <Form.InputNumber
+                          field='quota'
+                          label={t('剩余额度')}
                           placeholder={t('请输入新的剩余额度')}
-                            onChange={(value) => handleInputChange('quota', value)}
-                            value={quota}
-                            type={'number'}
-                            autoComplete='new-password'
-                            disabled={unlimitedQuota}
-                          />
-                          <Button onClick={openAddQuotaModal} disabled={unlimitedQuota}>
-                            {t('添加额度')}
-                          </Button>
+                          min={0}
+                          step={500000}
+                          extraText={values.quota ? renderQuotaWithPrompt(values.quota) : ''}
+                          rules={[{ required: !values.unlimited_quota, message: t('请输入额度') }]}
+                          style={{ width: '100%' }}
+                          disabled={values.unlimited_quota}
+                        />
+                      </Col>
+
+                      <Col span={8}>
+                        <Form.Slot label={t('添加额度')}>
                           <Button
-                            type={unlimitedQuota ? 'primary' : 'default'}
-                            onClick={() => handleInputChange('unlimited_quota', !unlimitedQuota)}
-                          >
-                            {t('无限额度')}
-                          </Button>
-                        </Space>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                            icon={<IconPlus />}
+                            onClick={() => setIsModalOpen(true)}
+                            disabled={values.unlimited_quota}
+                          />
+                        </Form.Slot>
+                      </Col>
+
+                      <Col span={8}>
+                        <Form.Switch
+                          field='unlimited_quota'
+                          label={t('无限额度')}
+                        />
+                      </Col>
+                    </Row>
               </Card>
             )}
 
@@ -320,8 +322,9 @@ const EditUser = (props) => {
                     ))}
                   </Row>
                 </Card>
-                </div>
-                    )}
+              </div>
+              );
+            }}
           </Form>
         </Spin>
       </SideSheet>
@@ -368,3 +371,4 @@ const EditUser = (props) => {
 };
 
 export default EditUser;
+
