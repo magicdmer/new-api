@@ -57,7 +57,6 @@ const EditUser = (props) => {
 
   const [loading, setLoading] = useState(true);
   const [addQuotaModalOpen, setIsModalOpen] = useState(false);
-  const [addQuotaLocal, setAddQuotaLocal] = useState('0');
   const [groupOptions, setGroupOptions] = useState([]);
   const formApiRef = useRef(null);
   const [unlimitedQuota, setUnlimitedQuota] = useState(false);
