@@ -267,18 +267,12 @@ const Home = () => {
       ) : (
         <div className="overflow-x-hidden w-full">
           {homePageContent.startsWith('https://') ? (
-            <div className="pt-16">
-              <iframe
-                src={homePageContent}
-                className="w-full border-none"
-                style={{ height: 'calc(100vh - 64px)' }}
-              />
-            </div>
+            <iframe
+              src={homePageContent}
+              className="w-full h-screen border-none"
+            />
           ) : (
-            <div
-              className="text-base md:text-lg p-4 md:p-6 lg:p-8 pt-20 md:pt-24 lg:pt-28 overflow-x-hidden max-w-6xl mx-auto"
-              dangerouslySetInnerHTML={{ __html: homePageContent }}
-            ></div>
+            <div className="mt-[64px]" dangerouslySetInnerHTML={{ __html: homePageContent }} />
           )}
         </div>
       )}
