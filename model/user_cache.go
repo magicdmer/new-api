@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"one-api/common"
 	"one-api/constant"
+	"one-api/dto"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -34,20 +35,15 @@ func (user *UserBase) WriteContext(c *gin.Context) {
 	c.Set("unlimited_quota", user.UnlimitedQuota)
 }
 
-func (user *UserBase) GetSetting() map[string]interface{} {
-	if user.Setting == "" {
-		return nil
+func (user *UserBase) GetSetting() dto.UserSetting {
+	setting := dto.UserSetting{}
+	if user.Setting != "" {
+		err := json.Unmarshal([]byte(user.Setting), &setting)
+		if err != nil {
+			common.SysError("failed to unmarshal setting: " + err.Error())
+		}
 	}
-	return common.StrToMap(user.Setting)
-}
-
-func (user *UserBase) SetSetting(setting map[string]interface{}) {
-	settingBytes, err := json.Marshal(setting)
-	if err != nil {
-		common.SysError("failed to marshal setting: " + err.Error())
-		return
-	}
-	user.Setting = string(settingBytes)
+	return setting
 }
 
 // getUserCacheKey returns the key for user cache
@@ -177,11 +173,10 @@ func getUserNameCache(userId int) (string, error) {
 	return cache.Username, nil
 }
 
-func getUserSettingCache(userId int) (map[string]interface{}, error) {
-	setting := make(map[string]interface{})
+func getUserSettingCache(userId int) (dto.UserSetting, error) {
 	cache, err := GetUserCache(userId)
 	if err != nil {
-		return setting, err
+		return dto.UserSetting{}, err
 	}
 	return cache.GetSetting(), nil
 }
